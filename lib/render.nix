@@ -21,10 +21,7 @@ let
   indent =
     text: concatStringsSep "\n" (map (l: "  " + l) (splitString "\n" (removeSuffix "\n" text)));
 
-  # kind = "ordered": a plain, unconditional `add` per item, in declared
-  # order. No identity check -- reapplying currently duplicates entries;
-  # positional reconciliation (`place-before`/`move`) is not implemented
-  # yet.
+  # kind = "ordered": one `add` per item, in declared order.
   renderPlainItems =
     path: items:
     if items == [ ] then
@@ -32,12 +29,8 @@ let
     else
       concatStringsSep "\n" ([ path ] ++ map (item: "add " + renderArgs item) items);
 
-  # kind = "unordered" | "effect": one `find`-guarded block per item --
-  # `create`'s text only runs if `find`'s query doesn't already match an
-  # existing entry. Uses `print count-only where ...` (a plain number)
-  # rather than `find where ...` (an id-or-empty-string) to check
-  # existence -- less brittle, since it sidesteps how `find` behaves when
-  # a query matches more than one entry.
+  # kind = "unordered" | "effect": one guard block per item -- `create`'s
+  # text only runs if `find`'s query matches no existing entry.
   renderGuardedItem =
     path: find: create: item:
     let
@@ -56,8 +49,7 @@ let
     else
       concatStringsSep "\n" ([ path ] ++ map (renderGuardedItem path find create) items);
 
-  # kind = "settings": a single `set` of all declared fields. Inherently
-  # idempotent, no identity/ordering needed.
+  # kind = "settings": a single `set` of all declared fields.
   renderSettings =
     path: settings:
     if settings == { } then

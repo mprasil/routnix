@@ -4,9 +4,7 @@ let
 
   inherit (import ../lib/render.nix { inherit lib; }) renderArgs;
 
-  # Loose value type for RouterOS fields. Kept intentionally simple for now;
-  # stricter types (CIDR, MAC, port-lists, ...) are expected to live in
-  # higher-level, device-agnostic modules built on top of this, not here.
+  # RouterOS field value: bool, int, or string.
   itemValueType = types.oneOf [
     types.bool
     types.int
@@ -23,29 +21,17 @@ let
           "effect"
         ];
         description = ''
-          How this path's entries should be managed. Required, no default --
-          picking a kind is a meaningful decision, not something to fall
-          back on silently:
+          How entries at this path are managed:
 
-          - `"ordered"`: position matters (firewall filter/mangle/nat,
-            routing rules, queue trees). `items` are rendered as a plain,
-            unconditional `add` per item, in declared order. There is no
-            identity check and no positional reconciliation yet
-            (`place-before`/`move` is planned, *not* remove-then-readd) --
-            reapplying currently duplicates entries.
-          - `"unordered"`: presence, not position, matters (routes,
-            address-lists, VLANs). Each item in `items` is only `add`-ed
-            if `find` doesn't already match an existing entry.
-          - `"settings"`: a non-table, singleton config object (e.g.
-            `/ip/dhcp-server/config`). `settings` fields are rendered as a
-            single `set`, inherently idempotent -- no `items`, `find`, or
-            `create`.
-          - `"effect"`: items realized via one or more RouterOS commands
-            that aren't a plain `add` of the item's own fields (e.g.
-            `/user/ssh-keys import`, possibly preceded by preparation
-            steps like writing a file). Same `find`-guarded per-item model
-            as `"unordered"`, but `create` returns arbitrary `.rsc` text
-            instead of relying on the default `add`.
+          - `"ordered"` (e.g. firewall filter/mangle/nat, routing rules):
+            order matters, so `items` are applied in declared order.
+          - `"unordered"` (e.g. routes, address-lists, VLANs): only
+            presence matters, so an item is `add`-ed only if `find`
+            doesn't already match an existing entry.
+          - `"settings"` (e.g. `/ip/dhcp-server/config`): `settings`
+            fields are applied as a single `set`.
+          - `"effect"` (e.g. `/user/ssh-keys`): like `"unordered"`, but
+            `create` runs arbitrary commands instead of a plain `add`.
         '';
       };
 
@@ -71,26 +57,18 @@ let
         type = types.listOf (types.attrsOf itemValueType);
         default = [ ];
         description = ''
-          Item data for `kind = "ordered" | "unordered" | "effect"` (unused
-          for `"settings"`, see `settings`). For `"ordered"`, each item is
-          rendered directly as `add` of its own fields. For
-          `"unordered"`/`"effect"`, each item is passed to `find` and
-          `create` rather than rendered directly.
+          For `kind = "ordered"`: fields to `add`, one item per entry. For
+          `"unordered"`/`"effect"`: item data passed to `find` and
+          `create`. Ignored for `"settings"` (see `settings`).
         '';
       };
 
       find = mkOption {
         type = types.functionTo (types.attrsOf itemValueType);
         description = ''
-          `kind = "unordered" | "effect"` only, required. Given one item
-          (from `items`), returns the fields used to look up whether it
-          already exists (rendered as `print count-only where k=v ...`,
-          compared against `0`), so `create` only runs when there isn't a
-          match. Deliberately has no default
-          -- an "always add unconditionally" fallback would silently
-          duplicate entries on reapply, so every unordered/effect resource
-          has to state its identity explicitly. Unused (never evaluated,
-          so safe to omit) for `"ordered"`/`"settings"`.
+          For `kind = "unordered" | "effect"`. Given an item from `items`,
+          returns the fields an existing entry must match for that item to
+          be considered already present. Ignored for other kinds.
         '';
       };
 
@@ -98,15 +76,11 @@ let
         type = types.functionTo types.str;
         default = item: "add " + renderArgs item;
         description = ''
-          `kind = "unordered" | "effect"` only. Given one item, returns the
-          raw `.rsc` text to run when `find` doesn't match. Runs under this
-          entry's own path context; prefix a line with a different
-          absolute path (e.g. `/file add ...`) to act elsewhere first
-          without losing that context for subsequent lines -- useful for
-          `"effect"` entries that need preparation before their main
-          action. Defaults to a plain `add` of the item's own fields, which
-          is normally all `"unordered"` needs. Unused (never evaluated) for
-          `"ordered"`/`"settings"`.
+          For `kind = "unordered" | "effect"`. Given an item, returns the
+          `.rsc` text to run when `find` finds no match, evaluated in this
+          entry's path context. A line can start with a different absolute
+          path (e.g. `/file add ...`) without changing that context for
+          subsequent lines. Ignored for other kinds.
         '';
       };
 
@@ -114,8 +88,8 @@ let
         type = types.attrsOf itemValueType;
         default = { };
         description = ''
-          `kind = "settings"` only: fields to `set` on this path. Unused
-          for other kinds.
+          For `kind = "settings"`: fields applied as a single `set`.
+          Ignored for other kinds.
         '';
       };
     };
@@ -130,7 +104,7 @@ in
       `"/ip/firewall/filter"`). This is the low-level, path-granularity,
       RouterOS-specific building block of routnix; ordering between
       different paths is controlled via `before`/`after`, and how entries
-      are rendered/managed is controlled via `kind`.
+      are managed is controlled via `kind`.
     '';
   };
 }

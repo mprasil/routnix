@@ -29,6 +29,35 @@ examples/                -- example configs, incl. one that intentionally cycles
 flake.nix                -- packages.<system>.example, .cycle-example
 ```
 
+## Comments and option descriptions
+
+Code comments and `mkOption` `description`s document current behavior —
+what the code does or what an option controls — not the design discussion
+or rationale behind it. Rationale, alternatives considered, and decision
+history belong in `DESIGN.md`, not in `.nix` files.
+
+- Don't narrate the design process (e.g. "settled", "decided", "direction
+  discussed", "deliberately has no default because...") — just state what
+  is true of the code as it stands.
+- Don't editorialize or justify why an option is good/useful — describe
+  its purpose and effect, not why it's a good idea.
+- Don't document planned-but-unimplemented behavior or current limitations
+  as if they were part of the design (e.g. "reapplying currently
+  duplicates entries" on an option about ordering) — that's a `DESIGN.md`
+  "Open design space" concern, not something a user of the option needs to
+  know to use it correctly today.
+- In `mkOption` `description`s specifically, describe things from the
+  config author's point of view (what happens to their router / their
+  declared entries), not the internal pipeline (e.g. `"set"`/`"add"` are
+  fine — that's RouterOS's own vocabulary and what actually happens on the
+  router; `"rendered"`, `"the .rsc text-generation step"`, or naming a
+  specific function are internal, routnix-pipeline vocabulary and don't
+  belong here, and are also liable to go stale if the implementation
+  changes).
+- Prefer no comment over one that just restates what the code obviously
+  does.
+- Keep it short: a sentence or a few bullet points, not a paragraph.
+
 ## Working in this repo
 
 - Build and inspect output: `nix build .#example && cat result`.
