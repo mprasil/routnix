@@ -1,12 +1,20 @@
 {
-  routeros.config."/ip/firewall/address-list".items = [
-    {
-      address = "192.168.1.0/24";
-      list = "trusted-ips";
-    }
-  ];
+  routeros.config."/ip/firewall/address-list" = {
+    kind = "unordered";
+    find = item: {
+      address = item.address;
+      list = item.list;
+    };
+    items = [
+      {
+        address = "192.168.1.0/24";
+        list = "trusted-ips";
+      }
+    ];
+  };
 
   routeros.config."/ip/firewall/filter" = {
+    kind = "ordered";
     after = [ "/ip/firewall/address-list" ];
     items = [
       {

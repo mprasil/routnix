@@ -71,12 +71,16 @@ flake.nix                -- exposes packages.<system>.example (built .rsc)
 options.routeros.config = mkOption {
   type = types.attrsOf (types.submodule {
     options = {
+      kind = mkOption { type = types.enum [ "ordered" "unordered" "settings" "effect" ]; };
       before = mkOption { type = types.listOf types.str; default = [ ]; };
       after  = mkOption { type = types.listOf types.str; default = [ ]; };
       items  = mkOption {
         type = types.listOf (types.attrsOf (types.oneOf [ types.bool types.int types.str ]));
         default = [ ];
       };
+      find    = mkOption { type = types.functionTo (types.attrsOf itemValueType); };
+      create  = mkOption { type = types.functionTo types.str; default = item: "add " + renderArgs item; };
+      settings = mkOption { type = types.attrsOf itemValueType; default = { }; };
     };
   });
   default = { };
@@ -94,14 +98,101 @@ scripting syntax (RouterOS accepts `/`-separated paths as equivalent to the
 more commonly documented space-separated form).
 
 This is intentionally the *lowest-level, coarsest-grained* primitive: one
-entry per RouterOS path, an ordered list of `add`-able items, and
-`before`/`after` to declare ordering relative to *other whole paths*. There
-is currently no concept smaller than "a whole path" — see "Block-level
+entry per RouterOS path, an ordered list of items, `before`/`after` to
+declare ordering relative to *other whole paths*, and `kind` to declare how
+those items should be managed (see "Resource kinds" below). There is
+currently no concept smaller than "a whole path" — see "Block-level
 ordering" below for the finer-grained model we discussed but haven't built.
 
 Item values are intentionally loosely typed (`bool | int | str`) — see
 "Typing" below for why we're not modeling RouterOS's per-field value syntax
 more strictly at this layer.
+
+### Resource kinds
+
+Not every RouterOS path behaves the same way (see "Ordered vs. keyed vs.
+settings vs. unmanaged resources" below for the original discussion), so
+every entry declares a required `kind` — no default, since picking one is
+a meaningful decision rather than something safe to fall back on:
+
+- **`"ordered"`** — position matters (firewall filter/mangle/nat, routing
+  rules, queue trees). `items` is a plain list rendered as an
+  unconditional `add` per item, in declared order, e.g.:
+
+  ```nix
+  routeros.config."/ip/firewall/filter" = {
+    kind = "ordered";
+    items = [
+      { chain = "input"; action = "accept"; protocol = "icmp"; }
+      { chain = "input"; action = "drop"; }
+    ];
+  };
+  ```
+
+  There is no identity check and no positional reconciliation yet —
+  reapplying currently duplicates entries. **Decided:** whatever
+  reconciliation mechanism eventually lands here, it will *not* be
+  remove-all-then-readd (see "Ordered vs. keyed vs. settings vs. unmanaged
+  resources" below for why that's unacceptable and what the alternative
+  looks like) — this is recorded now specifically to rule that option out,
+  even though the real mechanism isn't designed yet.
+
+- **`"unordered"`** — presence, not position, matters (routes,
+  address-lists, VLANs). Each item is only `add`-ed if `find` doesn't
+  already match an existing entry:
+
+  ```nix
+  routeros.config."/ip/firewall/address-list" = {
+    kind = "unordered";
+    find = item: { address = item.address; list = item.list; };
+    items = [ { address = "192.168.1.0/24"; list = "trusted-ips"; } ];
+  };
+  ```
+
+  `find` is `item -> attrsOf itemValueType`, rendered as
+  `print count-only where k=v ...` (compared against `0`, rather than
+  `find where ...` compared against `""` — a plain count sidesteps how
+  `find` behaves when a query matches more than one entry), and is
+  **required** — there's deliberately no "always add unconditionally"
+  default, since that would silently duplicate entries on reapply.
+  `create` (`item -> str`, raw `.rsc` text) defaults to a plain `add` of
+  the item's own fields, which is normally all this kind needs.
+
+- **`"settings"`** — a non-table, singleton config object (e.g.
+  `/ip/dhcp-server/config`). `settings` (a single `attrsOf itemValueType`,
+  not a list) is rendered as one `set` of all declared fields — inherently
+  idempotent, no `items`/`find`/`create`/identity/ordering involved.
+
+- **`"effect"`** — items realized via one or more RouterOS commands that
+  aren't a plain `add` of the item's own fields, e.g. `/user/ssh-keys`,
+  where creating a key requires writing a file first and then running
+  `import`:
+
+  ```nix
+  routeros.config."/user/ssh-keys" = {
+    kind = "effect";
+    find = item: { user = item.user; };
+    create = item: ''
+      /file add name="${item.user}.pub" contents="${item.key}"
+      import public-key-file="${item.user}.pub" user="${item.user}"
+    '';
+    items = [ { user = "admin"; key = "ssh-rsa AAAA..."; } ];
+  };
+  ```
+
+  Same `find`-guarded per-item model as `"unordered"`, but `create`
+  returns arbitrary `.rsc` text instead of relying on the default `add`.
+  `create`'s text runs under the entry's own path context; a line can
+  temporarily target a different absolute path (e.g. `/file add ...`)
+  without losing that context for subsequent lines, since RouterOS itself
+  treats a fully-qualified one-line command as a one-off, not a permanent
+  context switch — routnix doesn't need its own path-tracking mechanism
+  for this.
+
+  This is distinct from `DESIGN.md`'s original "unmanaged" idea (below) —
+  hardware-bound entries identified by native name, only ever `set` — which
+  remains unimplemented and un-named; `"effect"` is for resources that
+  *are* created via a command, just not `add`.
 
 ### Ordering (`lib/toposort.nix`)
 
@@ -125,24 +216,35 @@ garbage output (verified against a deliberately cyclic example).
 
 ### Rendering (`lib/render.nix`)
 
-For each path in dependency order, if it has any `items`, emit:
+For each path in dependency order, rendering branches on `kind`:
 
-```
-<path>
-add k=v k=v ...
-add k=v ...
-```
+- `"ordered"`: emit `<path>` then one `add k=v k=v ...` line per item, in
+  declared order.
+- `"unordered"` / `"effect"`: emit `<path>` then, per item, a guard block:
+  ```
+  :if ([<path> print count-only where k=v ...] = 0) do={
+    <create item's text, indented>
+  }
+  ```
+  built from `find item` (the query) and `create item` (the body). Uses
+  `print count-only where ...` (a plain number) rather than
+  `find where ...` (an id-or-empty-string) to check existence, since it
+  sidesteps how `find` behaves when a query matches more than one entry.
+- `"settings"`: emit `<path>` then a single `set k=v k=v ...` line built
+  from the `settings` attrset.
 
-paths with no items are skipped entirely. Value rendering rules:
+Entries that render to nothing (empty `items`/`settings`) are skipped
+entirely. Scalar value rendering rules (shared by all of the above, and by
+`find`'s query and `create`'s default body):
 
 - `bool` → `yes` / `no`
 - `int` → bare (`22`, not `"22"`)
 - `str` → double-quoted
 
-Field order *within* one `add` line is whatever Nix's `attrsOf` iteration
-gives us (alphabetical) — this doesn't matter to RouterOS. Item *list*
-order is preserved exactly as declared, which is what matters for
-order-sensitive tables.
+Field order *within* one rendered line is whatever Nix's `attrsOf`
+iteration gives us (alphabetical) — this doesn't matter to RouterOS. Item
+*list* order is preserved exactly as declared, which is what matters for
+order-sensitive (`"ordered"`) tables.
 
 ### `evalConfig` (`lib/default.nix`)
 
@@ -209,43 +311,54 @@ are bare names looked up in a flat namespace.
 
 Not every RouterOS path behaves the same way, and treating them uniformly
 (as `mikrotik.nix` mostly does, via per-item find-then-upsert) is
-insufficient. Distinguished so far:
+insufficient. **Settled:** every entry declares which kind it is via the
+required `kind` field — see "Resource kinds" above for the implemented
+shape (`"ordered"`, `"unordered"`, `"settings"`, `"effect"`). What follows
+is what's still open per kind.
 
-- **Ordered / positional** tables (firewall filter/mangle/nat, routing
+- **`"ordered"` / positional** tables (firewall filter/mangle/nat, routing
   rules, queue trees) — position matters; RouterOS evaluates these
   top-to-bottom. Per-item upsert-by-key does not preserve position across
-  applies. Direction discussed: on apply, remove *all currently-existing
-  owned entries* for that resource in one pass, then re-`add` the complete,
-  freshly computed, correctly-ordered list in another single pass. This
-  must happen as one atomic operation over the resource's *entire* merged
-  item set (all contributing blocks combined) — doing it per-block would
-  mean a later block's removal pass could delete an earlier block's
-  just-added items in the same run, since a removal pass has no way to
-  distinguish "not declared anywhere" from "not processed yet." This is
-  the reason a resource has to be the atomic unit of emission regardless of
-  how fine-grained block-level ordering gets.
-- **Keyed / unordered** tables (address-lists, DHCP static leases, IP
-  pools) — order doesn't matter; find-by-identity then add-or-update, closer
-  to what `mikrotik.nix` already does.
-- **Settings** (non-table, singleton config objects — e.g.
-  `/ip/dhcp-server/config`) — no entries, no identity/ownership needed at
-  all, just a `set` of whatever fields are declared, merged from possibly
-  multiple contributing blocks via plain attrset union (conflicting values
-  on the same field = error). Trivially idempotent since `set` with an
-  already-current value is a no-op. Believed to be the simplest case, not
-  an unsolved one.
+  applies. **Decided:** the fix is *not* "remove all currently-owned
+  entries, then re-`add` the complete list" — that was the original
+  direction here, but it's unacceptable in practice (drops rule counters,
+  connection-tracking state, and momentarily leaves the resource
+  unprotected/empty). Direction instead: incremental reconciliation using
+  `add place-before=<anchor>` for missing entries and `move` for
+  present-but-misplaced ones. Not yet designed in detail — open questions
+  include what the anchor is when there's no existing neighbor yet, and
+  how to reference RouterOS's dynamic `.id`s vs. a stable expression like
+  `[find where ...]`. Until this lands, `kind = "ordered"` entries render
+  as a plain, unconditional `add` per item (see "Resource kinds" above) —
+  correct on first apply, not yet idempotent on reapply.
+- **`"unordered"` / keyed** tables (address-lists, DHCP static leases, IP
+  pools) — order doesn't matter. **Settled:** find-by-identity (`find`,
+  required per entry) then `add` only if missing (`create`, defaulting to
+  a plain `add` of the item's own fields). **Still open:** update-if-differs
+  is not implemented — an existing match is left alone even if its other
+  fields have drifted from the declared item, so this isn't yet the full
+  find-then-upsert `mikrotik.nix` does.
+- **`"settings"`** (non-table, singleton config objects — e.g.
+  `/ip/dhcp-server/config`) — **settled and implemented**: a single `set`
+  of the `settings` attrset, no identity/ownership needed. Merging from
+  multiple contributing blocks (once blocks exist, see "Block-level
+  ordering" above) via plain attrset union is still open, but only because
+  blocks themselves don't exist yet — the single-block case is done.
 - **Unmanaged** tables (hardware-bound entries that can't be created or
   destroyed — physical interfaces, wifi radios) — identified by their real
   native name, only ever `set`, never added/removed, no ownership tag
-  needed since nothing is ever claimed.
+  needed since nothing is ever claimed. **Not implemented, not yet a
+  `kind` value.** Distinct from `"effect"` (which *does* create new
+  router-side objects, just via a command other than a plain `add` on the
+  entry's own fields) — a concrete example is needed before designing
+  this one further.
 
-Not decided how a resource declares which of these it is (explicit
-per-resource field vs. a built-in registry of well-known RouterOS paths vs.
-some other mechanism), nor the exact option shape once blocks exist (e.g.
-whether `items` is a list or an attrset depends on ordering — Nix attrsets
-don't preserve declaration order when enumerated, so ordered resources
-need list-shaped items, while keyed resources are more ergonomic as an
-attrset keyed by Nix name).
+Item *shape* is settled: `items` is a plain list for every kind that uses
+it (`"ordered"`/`"unordered"`/`"effect"`), regardless of whether order is
+semantically meaningful — list order is simply ignored by
+`"unordered"`/`"effect"` rendering rather than needing a different
+(attrset-keyed) shape. Identity for `"unordered"`/`"effect"` comes from the
+required `find` function, not from list vs. attrset structure.
 
 ### Ownership and identity
 
@@ -271,20 +384,33 @@ Also discussed: an escape hatch for **natural, composite-field identity**
 (e.g. matching address-lists by `address` + `list` together, since an
 address alone isn't unique across lists) for cases where a synthetic tag
 isn't wanted or isn't available (no `comment` field on that resource).
+**Settled and implemented** as `kind = "unordered" | "effect"`'s required
+`find` (`item -> attrsOf itemValueType`, rendered as
+`print count-only where k=v ...`, compared against `0`)
+— every such entry states its own identity explicitly, composite or not.
+Deliberately required rather than defaulting to an "always add
+unconditionally" fallback, since that would silently duplicate entries on
+reapply.
+
 Whatever identity mechanism is used, the `find` query should still require
 the ownership tag to be present wherever possible — matching by value alone
 risks silently claiming an entry we didn't create (a coincidentally
-matching dynamic lease, a manually-added rule). Consequence: no silent
-"adoption" of pre-existing entries in v1 — bringing an existing manually
-configured entry under routnix management will produce a visible duplicate
-until the old one is removed by hand. Whether adoption should be a
-deliberate opt-in feature later is open.
+matching dynamic lease, a manually-added rule). This part is **not yet
+implemented**: `find` as it stands today matches on value alone, with no
+ownership tag folded in, so a coincidentally-matching pre-existing entry
+would currently be silently treated as "already there." Consequence: no
+silent "adoption" of pre-existing entries is *intended*, but nothing
+enforces that yet. Whether adoption should be a deliberate opt-in feature
+later is open regardless.
 
 Not decided: exact tag format, whether the prefix is globally configurable
 (analogous to `mikrotik.nix`'s `meta.prefix`), and how/whether stale-entry
 cleanup (removing tagged entries that are no longer declared) gets
 implemented — explicitly deferred per the original scope ("keep this in
-mind and implement later").
+mind and implement later"). This also remains the missing piece for
+`"ordered"`'s planned `place-before`/`move` reconciliation (see above),
+which will need some way to identify "entries we own" to decide what to
+move vs. leave alone.
 
 ### High-level modules over the low-level DSL
 

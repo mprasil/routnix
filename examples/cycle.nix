@@ -1,6 +1,8 @@
 {
   routeros.config."/ip/firewall/address-list" = {
+    kind = "unordered";
     after = [ "/ip/firewall/filter" ];
+    find = item: { address = item.address; };
     items = [
       {
         address = "10.0.0.1";
@@ -10,6 +12,7 @@
   };
 
   routeros.config."/ip/firewall/filter" = {
+    kind = "ordered";
     after = [ "/ip/firewall/address-list" ];
     items = [
       {
