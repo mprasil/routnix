@@ -2,7 +2,7 @@
 let
   inherit (lib) mkOption types;
 
-  inherit (import ../lib/render.nix { inherit lib; }) renderArgs;
+  inherit (import ../lib/render_rsc.nix { inherit lib; }) renderArgs;
 
   # RouterOS field value: bool, int, or string.
   itemValueType = types.oneOf [

@@ -1,7 +1,7 @@
 { lib }:
 let
   toposort = import ./toposort.nix { inherit lib; };
-  render = import ./render.nix { inherit lib; };
+  render = import ./render_rsc.nix { inherit lib; };
 in
 {
   inherit (toposort) sortEntries;

@@ -53,7 +53,7 @@ Design priorities:
 ```
 modules/routeros.nix    -- the evalModules options (RouterOS-specific)
 lib/toposort.nix         -- before/after -> ordered list, via lib.toposort
-lib/render.nix           -- ordered routeros.config -> .rsc text
+lib/render_rsc.nix       -- ordered routeros.config -> .rsc text
 lib/default.nix          -- glue: evalConfig { modules } -> evaluated config + .rsc
 examples/basic.nix       -- example config
 examples/cycle.nix       -- example that intentionally triggers a cycle error
@@ -223,7 +223,7 @@ i.e. `a` must render before `b` if `a` lists `b` in `before`, or `b` lists
 and where it loops back to, rather than looping forever or producing
 garbage output (verified against a deliberately cyclic example).
 
-### Rendering (`lib/render.nix`)
+### Rendering (`lib/render_rsc.nix`)
 
 For each path in dependency order, rendering branches on `kind`:
 
