@@ -1,10 +1,8 @@
 # routnix
 
 Declarative RouterOS (MikroTik) configuration using the Nix module system,
-rendered to idempotent `.rsc` scripts — in the spirit of
-[`mikrotik.nix`](https://github.com/nrabulinski/mikrotik.nix), but
-implemented entirely in Nix (no external tool/build step for ordering or
-rendering).
+rendered to idempotent `.rsc` scripts — entirely in Nix, with no external
+tool/build step for ordering or rendering.
 
 > [!WARNING]
 > Very early and experimental. The low-level DSL shown below works, but
@@ -53,3 +51,9 @@ RouterOS-only, no plans otherwise (see `DESIGN.md` for the naming
 rationale). Nothing here should be pointed at a real router yet — there's
 no apply mechanism, no idempotent update logic, and no ownership tracking
 implemented.
+
+## Inspirations
+
+- [`mikrotik.nix`](https://github.com/nrabulinski/mikrotik.nix) — declarative
+  RouterOS configuration via a Nix module system, rendering of rsc script is
+  done in Rust code rather than pure nix.

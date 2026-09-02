@@ -1,9 +1,9 @@
 # routnix — design notes
 
-This document is a running reference for the design of `routnix` ("router"
-+ "nix"): declarative router/network-device configuration using the Nix
-module system, in the spirit of [`mikrotik.nix`](https://github.com/nrabulinski/mikrotik.nix)
-but implemented entirely in Nix.
+This document is a running reference for the design of `routnix`
+("router"+"nix"): declarative router/network-device configuration using the Nix
+module system, rendered to backend-specific scripts entirely in Nix — no
+external tool/build step for ordering or rendering.
 
 **Scope note**: the name is chosen to not be RouterOS-specific, since
 low-level config is inherently device-specific while a higher-level layer
@@ -21,9 +21,9 @@ It's split into two parts:
   on, but haven't committed to. These are notes to pick the conversation
   back up from, not a spec.
 
-## Motivation, and what we take from `mikrotik.nix`
+## Motivation
 
-`mikrotik.nix` demonstrated a shape we like:
+The core shape:
 
 - Options/config expressed via a Nix module system (`lib.evalModules`),
   including a freeform low-level DSL that maps closely to RouterOS's own
@@ -31,23 +31,20 @@ It's split into two parts:
 - The end product is a `.rsc` script, applied to the router over SSH by
   copying it over and running `/import`.
 
-What we want to do differently:
+Design priorities:
 
-- No Rust. The `mikrotik.nix` reference implementation does ordering and
-  `.rsc` rendering in a separate Rust binary (`json-to-rsc`, using
-  `petgraph` for topological sort) that consumes JSON produced from the
-  evaluated Nix config. We want the entire pipeline — module evaluation,
-  dependency ordering, and rendering — to be plain Nix, evaluated lazily,
-  with no external tool/build step in between.
-- Ordering that's correct for RouterOS's positional tables (see
-  "Ordered vs. keyed resources" below), which `mikrotik.nix` doesn't
-  currently model — reordering firewall rules in its DSL does not reorder
-  them on the router, since it always does per-key upsert regardless of
-  whether the underlying table is order-sensitive.
+- Nix at core: the entire pipeline — module evaluation, dependency
+  ordering, and rendering — is plain Nix, with no external tool/build step
+  in between.
+- Ordering that's correct for RouterOS's positional tables (see "Ordered
+  vs. keyed resources" below) — reordering declared items for an
+  order-sensitive table actually reorders them on the router, rather than
+  always doing a per-key upsert regardless of whether the underlying
+  table is order-sensitive.
 - A clearer split between *identity* (how we find/match an entry) and
   *ownership* (how we know an entry is ours to manage), so that ownership
-  tracking doesn't have to be smuggled into whatever field happens to be
-  used as the lookup key (see "Ownership and identity" below).
+  tracking doesn't have to be smuggled into whatever field happens to be used as
+  the lookup key (see "Ownership and identity" below).
 
 ## Settled: current implementation
 
@@ -309,9 +306,8 @@ are bare names looked up in a flat namespace.
 
 ### Ordered vs. keyed vs. settings vs. unmanaged resources
 
-Not every RouterOS path behaves the same way, and treating them uniformly
-(as `mikrotik.nix` mostly does, via per-item find-then-upsert) is
-insufficient. **Settled:** every entry declares which kind it is via the
+Not every RouterOS path behaves the same way, and treating them all
+uniformly via per-item find-then-upsert is insufficient. **Settled:** every entry declares which kind it is via the
 required `kind` field — see "Resource kinds" above for the implemented
 shape (`"ordered"`, `"unordered"`, `"settings"`, `"effect"`). What follows
 is what's still open per kind.
@@ -336,8 +332,8 @@ is what's still open per kind.
   required per entry) then `add` only if missing (`create`, defaulting to
   a plain `add` of the item's own fields). **Still open:** update-if-differs
   is not implemented — an existing match is left alone even if its other
-  fields have drifted from the declared item, so this isn't yet the full
-  find-then-upsert `mikrotik.nix` does.
+  fields have drifted from the declared item, so this isn't yet full
+  find-then-upsert.
 - **`"settings"`** (non-table, singleton config objects — e.g.
   `/ip/dhcp-server/config`) — **settled and implemented**: a single `set`
   of the `settings` attrset, no identity/ownership needed. Merging from
@@ -373,12 +369,10 @@ Discussed as two separate concerns, deliberately decoupled:
 Direction discussed: use a synthetic tag written into `comment` (default,
 e.g. `routnix:<block>:<name>`, with any user-supplied comment text appended
 after it) as the default identity/lookup mechanism, decoupled from
-whichever real fields the item actually sets. This sidesteps a real problem
-with `mikrotik.nix`'s approach (baking the ownership prefix into whatever
-field is used as the key), which breaks when that field is a real,
-semantically constrained value rather than free text (`mikrotik.nix` itself
-has to special-case this with `_prefix = ""`, giving up tracking for those
-resources).
+whichever real fields the item actually sets. This avoids baking the
+ownership prefix into whatever field is used as the lookup key, which
+breaks down when that field is a real, semantically constrained value
+rather than free text with room for a prefix.
 
 Also discussed: an escape hatch for **natural, composite-field identity**
 (e.g. matching address-lists by `address` + `list` together, since an
@@ -403,9 +397,9 @@ silent "adoption" of pre-existing entries is *intended*, but nothing
 enforces that yet. Whether adoption should be a deliberate opt-in feature
 later is open regardless.
 
-Not decided: exact tag format, whether the prefix is globally configurable
-(analogous to `mikrotik.nix`'s `meta.prefix`), and how/whether stale-entry
-cleanup (removing tagged entries that are no longer declared) gets
+Not decided: exact tag format, whether the prefix is globally configurable,
+and how/whether stale-entry cleanup (removing tagged entries that are no
+longer declared) gets
 implemented — explicitly deferred per the original scope ("keep this in
 mind and implement later"). This also remains the missing piece for
 `"ordered"`'s planned `place-before`/`move` reconciliation (see above),
@@ -440,10 +434,9 @@ have a couple of high-level modules to see what they actually need.
 
 ### Apply mechanism
 
-Not yet implemented at all. Direction from `mikrotik.nix` we intend to keep:
-scp the rendered `.rsc` to the router, `/import` it, wrapped in RouterOS's
-`/safe-mode take` / `release` so a failure rolls back rather than leaving a
-half-applied config. Open questions not yet discussed in depth: dry-run/plan
+Not yet implemented at all. Direction: scp the rendered `.rsc` to the
+router, `/import` it, wrapped in RouterOS's `/safe-mode take` / `release`
+so a failure rolls back rather than leaving a half-applied config. Open questions not yet discussed in depth: dry-run/plan
 support, and behavior on connection failure mid-apply.
 
 ### Multi-router / flake shape
