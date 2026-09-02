@@ -155,6 +155,18 @@ a meaningful decision rather than something safe to fall back on:
   `create` (`item -> str`, raw `.rsc` text) defaults to a plain `add` of
   the item's own fields, which is normally all this kind needs.
 
+  Optionally, `prune = true` removes existing entries this path doesn't
+  currently declare — rendered as a `foreach` over the path's existing
+  entries at apply time (Nix has no visibility into router state at eval
+  time), removing anything not matched by `find` for any current item.
+  Off by default, since removing entries is destructive. `ignore` (a list
+  of field predicates, OR'd together) exempts entries from pruning
+  regardless of `items` — e.g. for entries managed by hand or by another
+  tool. Only valid for `kind = "unordered"`; setting `prune` on any other
+  `kind` is an error. This only approximates ownership (see "Ownership and
+  identity" below) — an entry that happens to match neither `ignore` nor
+  any current `find` is removed even if routnix never created it.
+
 - **`"settings"`** — a non-table, singleton config object (e.g.
   `/ip/dhcp-server/config`). `settings` (a single `attrsOf itemValueType`,
   not a list) is rendered as one `set` of all declared fields — inherently
@@ -230,9 +242,26 @@ For each path in dependency order, rendering branches on `kind`:
 - `"settings"`: emit `<path>` then a single `set k=v k=v ...` line built
   from the `settings` attrset.
 
-Entries that render to nothing (empty `items`/`settings`) are skipped
-entirely. Scalar value rendering rules (shared by all of the above, and by
-`find`'s query and `create`'s default body):
+For `"unordered"` entries with `prune = true`, an additional block follows
+the guards, per path:
+```
+:foreach i in=[<path> find] do={
+  :local ignored false
+  :if ([<path> get $i k]=v ...) do={ :set ignored true }   -- one per `ignore` predicate
+  :local keep false
+  :if ([<path> get $i k]=v ...) do={ :set keep true }      -- one per current item's `find`
+  :if (!$ignored and !$keep) do={ <path> remove $i }
+}
+```
+Built as `:if`/`:foreach` script logic rather than a single composed
+`where` query, since RouterOS's `where` mini-language doesn't reliably
+document boolean composition (`or`, grouped negation) across many
+conditions, whereas `:if`'s conditional syntax is the same well-documented
+mechanism already used for the guard blocks above.
+
+Entries that render to nothing (empty `items`/`settings`, and no `prune`)
+are skipped entirely. Scalar value rendering rules (shared by all of the
+above, and by `find`'s query and `create`'s default body):
 
 - `bool` → `yes` / `no`
 - `int` → bare (`22`, not `"22"`)
@@ -397,14 +426,23 @@ silent "adoption" of pre-existing entries is *intended*, but nothing
 enforces that yet. Whether adoption should be a deliberate opt-in feature
 later is open regardless.
 
-Not decided: exact tag format, whether the prefix is globally configurable,
-and how/whether stale-entry cleanup (removing tagged entries that are no
-longer declared) gets
-implemented — explicitly deferred per the original scope ("keep this in
-mind and implement later"). This also remains the missing piece for
-`"ordered"`'s planned `place-before`/`move` reconciliation (see above),
-which will need some way to identify "entries we own" to decide what to
-move vs. leave alone.
+Not decided: exact tag format, whether the prefix is globally configurable.
+This also remains the missing piece for `"ordered"`'s planned
+`place-before`/`move` reconciliation (see above), which will need some way
+to identify "entries we own" to decide what to move vs. leave alone.
+
+**Partially settled and implemented** for `kind = "unordered"`:
+stale-entry cleanup via `prune`/`ignore` (see "Resource kinds" above) —
+but as an approximation of ownership, not the tag-based mechanism
+discussed above. `prune` removes anything not matched by a current item's
+`find` and not covered by `ignore`, with no notion of "entries we created"
+distinct from "entries that happen to match" — so it inherits the same
+adoption risk noted above, applied to deletion instead of update: an
+entry `routnix` never created can still be pruned if it isn't declared and
+isn't explicitly `ignore`d. A tag-based ownership mechanism, if it lands
+later, would let pruning (and adoption-avoidance generally) be precise
+instead of relying on the caller's `ignore` list to enumerate every
+un-owned entry by hand.
 
 ### High-level modules over the low-level DSL
 

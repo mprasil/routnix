@@ -92,6 +92,27 @@ let
           Ignored for other kinds.
         '';
       };
+
+      prune = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          For `kind = "unordered"`: removes existing entries not matched
+          by `find` for any current item and not covered by `ignore`.
+          Off by default. Only valid for `kind = "unordered"`.
+        '';
+      };
+
+      ignore = mkOption {
+        type = types.listOf (types.attrsOf itemValueType);
+        default = [ ];
+        description = ''
+          For `kind = "unordered"` with `prune = true`: entries matching
+          any of these field predicates are left alone by pruning, even
+          if not declared in `items` -- for entries managed by hand or by
+          another tool.
+        '';
+      };
     };
   };
 in

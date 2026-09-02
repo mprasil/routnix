@@ -49,6 +49,52 @@ let
     else
       concatStringsSep "\n" ([ path ] ++ map (renderGuardedItem path find create) items);
 
+  # Renders `fields` as a RouterOS boolean expression testing `$i`'s
+  # values at `path`, e.g. `[<path> get $i address]="1.2.3.0/24" and ...`.
+  renderFieldMatch =
+    path: fields:
+    concatStringsSep " and " (
+      mapAttrsToList (k: v: "[${path} get $i ${k}]=${renderValue v}") fields
+    );
+
+  # kind = "unordered" with `prune = true`: removes existing entries that
+  # neither match an `ignore` predicate nor `find` for any current item.
+  renderPrune =
+    path: find: ignore: items:
+    let
+      check = setVar: fields: ":if (${renderFieldMatch path fields}) do={ :set ${setVar} true }";
+      body = concatStringsSep "\n" (
+        [ ":local ignored false" ]
+        ++ map (check "ignored") ignore
+        ++ [ ":local keep false" ]
+        ++ map (item: check "keep" (find item)) items
+        ++ [ ":if (!$ignored and !$keep) do={ ${path} remove $i }" ]
+      );
+    in
+    ''
+      :foreach i in=[${path} find] do={
+      ${indent body}
+      }'';
+
+  # kind = "unordered": add-guard per item, then (if `prune`) remove
+  # existing entries `find` doesn't match for any current item and that
+  # `ignore` doesn't cover.
+  renderUnordered =
+    path: entry:
+    let
+      addChunk =
+        if entry.items == [ ] then
+          null
+        else
+          concatStringsSep "\n" (map (renderGuardedItem path entry.find entry.create) entry.items);
+      pruneChunk = if entry.prune then renderPrune path entry.find entry.ignore entry.items else null;
+      body = filter (c: c != null) [
+        addChunk
+        pruneChunk
+      ];
+    in
+    if body == [ ] then null else concatStringsSep "\n" ([ path ] ++ body);
+
   # kind = "settings": a single `set` of all declared fields.
   renderSettings =
     path: settings:
@@ -59,11 +105,15 @@ let
 
   renderEntry =
     path: entry:
-    if entry.kind == "settings" then
+    if entry.prune && entry.kind != "unordered" then
+      throw ''routnix: `prune = true` is only valid for kind = "unordered" (at ${path})''
+    else if entry.kind == "settings" then
       renderSettings path entry.settings
     else if entry.kind == "ordered" then
       renderPlainItems path entry.items
-    else # "unordered" | "effect"
+    else if entry.kind == "unordered" then
+      renderUnordered path entry
+    else # "effect"
       renderGuardedItems path entry.find entry.create entry.items;
 in
 {
