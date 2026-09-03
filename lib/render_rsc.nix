@@ -1,6 +1,14 @@
 { lib }:
 let
-  inherit (lib) concatStringsSep mapAttrsToList filter splitString removeSuffix;
+  inherit (lib)
+    concatStringsSep
+    mapAttrsToList
+    filter
+    splitString
+    removeSuffix
+    imap0
+    drop
+    ;
 
   # Renders a single RouterOS scalar value into its `.rsc` textual form.
   renderValue =
@@ -21,13 +29,88 @@ let
   indent =
     text: concatStringsSep "\n" (map (l: "  " + l) (splitString "\n" (removeSuffix "\n" text)));
 
-  # kind = "ordered": one `add` per item, in declared order.
-  renderPlainItems =
-    path: items:
+  # kind = "ordered": reconciles items against existing entries by
+  # identity (`find`) and relative order, using `add`/`add place-before=`
+  # for items that aren't there yet and `move` for ones that are but are
+  # out of order -- so reapplying neither duplicates entries nor disturbs
+  # ones already correctly placed. Only order *relative to other declared
+  # items* is enforced: entries `find` doesn't match (foreign or
+  # unmanaged ones) can sit interleaved among them untouched.
+  #
+  # For each item, in a fresh scope (so `dest`/`id`/`ok` don't collide
+  # across items):
+  #   - resolves `dest` to the id of the nearest declared item *after*
+  #     this one that already exists (trying each in declared order,
+  #     first non-empty wins), or "" if none do (i.e. anchor to the end);
+  #   - looks up this item's own id via `find`;
+  #   - if missing, `add`s it (anchored to `dest` via `place-before` if
+  #     resolved);
+  #   - if present, checks whether it already comes after `$anchor` (the
+  #     previous item) in the path's current order, `move`-ing it to
+  #     `dest` only if it doesn't;
+  #   - carries its own id forward as `$anchor` for the next item.
+  renderOrderedItem =
+    path: find: item: laterItems:
+    let
+      idExpr = i: "[${path} find where ${renderArgs (find i)}]";
+
+      destLines = [ ":local dest \"\"" ] ++ map (l: ":if ($dest = \"\") do={ :set dest ${idExpr l} }") laterItems;
+
+      addBlock = ''
+        :if ($dest = "") do={
+        ${indent "add ${renderArgs item}"}
+        } else={
+        ${indent "add place-before=$dest ${renderArgs item}"}
+        }'';
+
+      addBranch = addBlock + "\n:set id ${idExpr item}";
+
+      moveLine = ":if ($dest = \"\") do={ move $id } else={ move $id destination=$dest }";
+
+      foreachBody = ''
+        :if ($j = $anchor) do={ :set ok true }
+        :if ($j = $id) do={ :if (!$ok) do={
+        ${indent moveLine}
+        } }'';
+
+      foreachBlock = ''
+        :local ok false
+        :foreach j in=[${path} find] do={
+        ${indent foreachBody}
+        }'';
+
+      moveBranch = ''
+        :if ($anchor != "") do={
+        ${indent foreachBlock}
+        }'';
+
+      idCheck = ''
+        :if ($id = "") do={
+        ${indent addBranch}
+        } else={
+        ${indent moveBranch}
+        }'';
+
+      body = concatStringsSep "\n" (destLines ++ [
+        ":local id ${idExpr item}"
+        idCheck
+        ":set anchor $id"
+      ]);
+    in
+    ''
+      {
+      ${indent body}
+      }'';
+
+  renderOrderedItems =
+    path: find: items:
     if items == [ ] then
       null
     else
-      concatStringsSep "\n" ([ path ] ++ map (item: "add " + renderArgs item) items);
+      let
+        blocks = imap0 (i: item: renderOrderedItem path find item (drop (i + 1) items)) items;
+      in
+      concatStringsSep "\n" ([ path ":local anchor \"\"" ] ++ blocks);
 
   # kind = "unordered" | "effect": one guard block per item -- `create`'s
   # text only runs if `find`'s query matches no existing entry.
@@ -110,7 +193,7 @@ let
     else if entry.kind == "settings" then
       renderSettings path entry.settings
     else if entry.kind == "ordered" then
-      renderPlainItems path entry.items
+      renderOrderedItems path entry.find entry.items
     else if entry.kind == "unordered" then
       renderUnordered path entry
     else # "effect"

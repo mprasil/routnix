@@ -113,26 +113,34 @@ every entry declares a required `kind` — no default, since picking one is
 a meaningful decision rather than something safe to fall back on:
 
 - **`"ordered"`** — position matters (firewall filter/mangle/nat, routing
-  rules, queue trees). `items` is a plain list rendered as an
-  unconditional `add` per item, in declared order, e.g.:
+  rules, queue trees). `find` (same shape as `"unordered"`, see below)
+  locates each item; missing items are `add`-ed and present-but-misplaced
+  ones are `move`-d, so reapplying neither duplicates entries nor
+  disturbs ones already correctly placed, e.g.:
 
   ```nix
   routeros.config."/ip/firewall/filter" = {
     kind = "ordered";
+    find = item: { comment = item.comment; };
     items = [
-      { chain = "input"; action = "accept"; protocol = "icmp"; }
-      { chain = "input"; action = "drop"; }
+      { chain = "input"; action = "accept"; protocol = "icmp"; comment = "allow-icmp"; }
+      { chain = "input"; action = "drop"; comment = "drop-rest"; }
     ];
   };
   ```
 
-  There is no identity check and no positional reconciliation yet —
-  reapplying currently duplicates entries. **Decided:** whatever
-  reconciliation mechanism eventually lands here, it will *not* be
-  remove-all-then-readd (see "Ordered vs. keyed vs. settings vs. unmanaged
-  resources" below for why that's unacceptable and what the alternative
-  looks like) — this is recorded now specifically to rule that option out,
-  even though the real mechanism isn't designed yet.
+  Correctness only means declared items stay in declared order *relative
+  to each other* — entries `find` doesn't match (foreign or unmanaged
+  ones) can sit interleaved among them untouched. For each item, in a
+  fresh script scope, rendering resolves `dest` to the id of the nearest
+  declared item *after* it that already exists (trying each in turn, at
+  apply time, since Nix has no visibility into router state at eval
+  time), then either `add`s the item (via `place-before=$dest` if
+  resolved) or, if it's already present, `move`s it to `dest` only if it
+  doesn't already come after the previous item. This replaced an earlier
+  remove-all-then-readd idea, ruled out for dropping rule counters and
+  connection-tracking state and momentarily leaving the resource
+  unprotected.
 
 - **`"unordered"`** — presence, not position, matters (routes,
   address-lists, VLANs). Each item is only `add`-ed if `find` doesn't
@@ -227,8 +235,32 @@ garbage output (verified against a deliberately cyclic example).
 
 For each path in dependency order, rendering branches on `kind`:
 
-- `"ordered"`: emit `<path>` then one `add k=v k=v ...` line per item, in
-  declared order.
+- `"ordered"`: emit `<path>` then, per item, a scoped reconciliation
+  block:
+  ```
+  {
+    :local dest ""
+    :if ($dest = "") do={ :set dest [<path> find where k=v ...] }   -- one per later declared item, first existing one wins
+    :local id [<path> find where k=v ...]
+    :if ($id = "") do={
+      add [place-before=$dest] k=v ...
+      :set id [<path> find where k=v ...]
+    } else={
+      :if ($anchor != "") do={
+        :local ok false
+        :foreach j in=[<path> find] do={
+          :if ($j = $anchor) do={ :set ok true }
+          :if ($j = $id) do={ :if (!$ok) do={ move $id [destination=$dest] } }
+        }
+      }
+    }
+    :set anchor $id
+  }
+  ```
+  built from `find item` for both this item's own identity and (as a
+  fallback chain) each later item's. `$anchor` (the previous item's id)
+  is carried across items via a shared, per-path scope opened by
+  `:local anchor ""` before the first item's block.
 - `"unordered"` / `"effect"`: emit `<path>` then, per item, a guard block:
   ```
   :if ([<path> print count-only where k=v ...] = 0) do={
@@ -343,19 +375,15 @@ is what's still open per kind.
 
 - **`"ordered"` / positional** tables (firewall filter/mangle/nat, routing
   rules, queue trees) — position matters; RouterOS evaluates these
-  top-to-bottom. Per-item upsert-by-key does not preserve position across
-  applies. **Decided:** the fix is *not* "remove all currently-owned
-  entries, then re-`add` the complete list" — that was the original
-  direction here, but it's unacceptable in practice (drops rule counters,
-  connection-tracking state, and momentarily leaves the resource
-  unprotected/empty). Direction instead: incremental reconciliation using
-  `add place-before=<anchor>` for missing entries and `move` for
-  present-but-misplaced ones. Not yet designed in detail — open questions
-  include what the anchor is when there's no existing neighbor yet, and
-  how to reference RouterOS's dynamic `.id`s vs. a stable expression like
-  `[find where ...]`. Until this lands, `kind = "ordered"` entries render
-  as a plain, unconditional `add` per item (see "Resource kinds" above) —
-  correct on first apply, not yet idempotent on reapply.
+  top-to-bottom. **Settled and implemented**: find-by-identity (`find`,
+  required, same shape as `"unordered"`) plus incremental reconciliation
+  via `add`/`add place-before=` and `move` (see "Resource kinds" above) —
+  not remove-all-then-readd, which was ruled out for dropping rule
+  counters and connection-tracking state and momentarily leaving the
+  resource unprotected. **Still open**: like `"unordered"`,
+  update-if-differs isn't implemented (a present, correctly-placed item is
+  left alone even if its other fields drifted); and the ownership gap
+  described below (`find` matches on value alone) applies here too.
 - **`"unordered"` / keyed** tables (address-lists, DHCP static leases, IP
   pools) — order doesn't matter. **Settled:** find-by-identity (`find`,
   required per entry) then `add` only if missing (`create`, defaulting to
@@ -427,9 +455,15 @@ enforces that yet. Whether adoption should be a deliberate opt-in feature
 later is open regardless.
 
 Not decided: exact tag format, whether the prefix is globally configurable.
-This also remains the missing piece for `"ordered"`'s planned
-`place-before`/`move` reconciliation (see above), which will need some way
-to identify "entries we own" to decide what to move vs. leave alone.
+
+`kind = "ordered"`'s `find`-based `place-before`/`move` reconciliation
+(see "Resource kinds" above) was implemented without waiting on this —
+it matches on value alone, same as `"unordered"`/`"effect"`, so a
+coincidentally-matching foreign entry could be misidentified as a
+declared item's position anchor and moved. This is accepted for now as
+the same adoption risk already noted above, just applied to positioning
+instead of update/prune — not solved by a tag-based mechanism, if one
+lands later.
 
 **Partially settled and implemented** for `kind = "unordered"`:
 stale-entry cleanup via `prune`/`ignore` (see "Resource kinds" above) —

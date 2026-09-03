@@ -1,6 +1,12 @@
 {
   routeros.config."/ip/firewall/address-list" = {
     kind = "unordered";
+    prune = true;
+    ignore = [
+      {
+        comment = "nomanage";
+      }
+    ];
     find = item: {
       address = item.address;
       list = item.list;
@@ -15,17 +21,20 @@
 
   routeros.config."/ip/firewall/filter" = {
     kind = "ordered";
-    after = [ "/ip/firewall/address-list" ];
+    after = ["/ip/firewall/address-list"];
+    find = item: {comment = item.comment;};
     items = [
       {
         chain = "input";
         action = "accept";
         protocol = "icmp";
+        comment = "allow-icmp";
       }
       {
         chain = "input";
         action = "accept";
         "connection-state" = "established,related";
+        comment = "allow-established";
       }
       {
         chain = "input";
@@ -33,10 +42,12 @@
         protocol = "tcp";
         "dst-port" = 22;
         "src-address-list" = "trusted-ips";
+        comment = "allow-ssh-trusted";
       }
       {
         chain = "input";
         action = "drop";
+        comment = "drop-rest";
       }
     ];
   };

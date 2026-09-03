@@ -24,7 +24,10 @@ let
           How entries at this path are managed:
 
           - `"ordered"` (e.g. firewall filter/mangle/nat, routing rules):
-            order matters, so `items` are applied in declared order.
+            order matters, so items are kept in declared order relative
+            to each other -- `find` locates each item, missing ones are
+            `add`-ed (anchored via `place-before` where needed) and
+            present-but-misplaced ones are repositioned via `move`.
           - `"unordered"` (e.g. routes, address-lists, VLANs): only
             presence matters, so an item is `add`-ed only if `find`
             doesn't already match an existing entry.
@@ -57,7 +60,9 @@ let
         type = types.listOf (types.attrsOf itemValueType);
         default = [ ];
         description = ''
-          For `kind = "ordered"`: fields to `add`, one item per entry. For
+          For `kind = "ordered"`: fields to `add`, one item per entry,
+          kept in declared order relative to each other; also passed to
+          `find` to locate each item's existing entry, if any. For
           `"unordered"`/`"effect"`: item data passed to `find` and
           `create`. Ignored for `"settings"` (see `settings`).
         '';
@@ -66,9 +71,12 @@ let
       find = mkOption {
         type = types.functionTo (types.attrsOf itemValueType);
         description = ''
-          For `kind = "unordered" | "effect"`. Given an item from `items`,
-          returns the fields an existing entry must match for that item to
-          be considered already present. Ignored for other kinds.
+          For `kind = "unordered" | "effect" | "ordered"`. Given an item
+          from `items`, returns the fields an existing entry must match
+          for that item to be considered already present. For
+          `"ordered"`, this identity is also used to check the item's
+          position relative to its declared neighbors. Ignored for
+          `"settings"`.
         '';
       };
 
