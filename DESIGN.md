@@ -75,7 +75,7 @@ options.routeros.config = mkOption {
         type = types.listOf (types.attrsOf (types.oneOf [ types.bool types.int types.str ]));
         default = [ ];
       };
-      find    = mkOption { type = types.functionTo (types.attrsOf itemValueType); };
+      find    = mkOption { type = types.nullOr (types.functionTo (types.attrsOf itemValueType)); default = null; };
       create  = mkOption { type = types.functionTo types.str; default = item: "add " + renderArgs item; };
       settings = mkOption { type = types.attrsOf itemValueType; default = { }; };
     };
@@ -143,37 +143,42 @@ a meaningful decision rather than something safe to fall back on:
   unprotected.
 
 - **`"unordered"`** — presence, not position, matters (routes,
-  address-lists, VLANs). Each item is only `add`-ed if `find` doesn't
-  already match an existing entry:
+  address-lists, VLANs). Each item is only `add`-ed if it doesn't already
+  match an existing entry:
 
   ```nix
   routeros.config."/ip/firewall/address-list" = {
     kind = "unordered";
-    find = item: { address = item.address; list = item.list; };
     items = [ { address = "192.168.1.0/24"; list = "trusted-ips"; } ];
   };
   ```
 
-  `find` is `item -> attrsOf itemValueType`, rendered as
-  `print count-only where k=v ...` (compared against `0`, rather than
-  `find where ...` compared against `""` — a plain count sidesteps how
-  `find` behaves when a query matches more than one entry), and is
-  **required** — there's deliberately no "always add unconditionally"
-  default, since that would silently duplicate entries on reapply.
-  `create` (`item -> str`, raw `.rsc` text) defaults to a plain `add` of
-  the item's own fields, which is normally all this kind needs.
+  Unlike `"ordered"`/`"effect"` (see below), this kind has no `find`
+  option -- and no escape hatch yet to override the following with one:
+  identity is derived automatically from each item's own declared fields,
+  rendered as `print count-only where k=v ...` (compared against `0`,
+  rather than `find where ...` compared against `""` — a plain count
+  sidesteps how `find` behaves when a query matches more than one entry).
+  A field some items set and others don't renders as `!k` (RouterOS's
+  "this field isn't set") for the items that don't set it, so e.g. one
+  item having a `comment` and another not doesn't make them
+  indistinguishable from each other. `create` (`item -> str`, raw `.rsc`
+  text) defaults to a plain `add` of the item's own fields, which is
+  normally all this kind needs.
 
   Optionally, `prune = true` removes existing entries this path doesn't
-  currently declare — rendered as a `foreach` over the path's existing
-  entries at apply time (Nix has no visibility into router state at eval
-  time), removing anything not matched by `find` for any current item.
-  Off by default, since removing entries is destructive. `ignore` (a list
-  of field predicates, OR'd together) exempts entries from pruning
-  regardless of `items` — e.g. for entries managed by hand or by another
-  tool. Only valid for `kind = "unordered"`; setting `prune` on any other
-  `kind` is an error. This only approximates ownership (see "Ownership and
-  identity" below) — an entry that happens to match neither `ignore` nor
-  any current `find` is removed even if routnix never created it.
+  currently declare. Each declared item's id is resolved via `find` (if
+  it already exists) or `add` (if it doesn't) and recorded in a per-path
+  list; `ignore` (a list of field predicates, OR'd together) is resolved
+  to ids the same way, for entries managed by hand or by another tool. A
+  `foreach` over the path's existing entries at apply time (Nix has no
+  visibility into router state at eval time) then removes anything whose
+  id is in neither list. Off by default, since removing entries is
+  destructive. Only valid for `kind = "unordered"`; setting `prune` on any
+  other `kind` is an error. This only approximates ownership (see
+  "Ownership and identity" below) — an entry that happens to match neither
+  `ignore` nor any current `find` is removed even if routnix never created
+  it.
 
 - **`"settings"`** — a non-table, singleton config object (e.g.
   `/ip/dhcp-server/config`). `settings` (a single `attrsOf itemValueType`,
@@ -210,6 +215,12 @@ a meaningful decision rather than something safe to fall back on:
   hardware-bound entries identified by native name, only ever `set` — which
   remains unimplemented and un-named; `"effect"` is for resources that
   *are* created via a command, just not `add`.
+
+For every kind above except `"settings"`, `find` (explicit or derived) is
+required to actually distinguish items from each other: rendering throws
+if two items in the same `items` list produce the same `find` result,
+since they'd otherwise silently collapse into a single RouterOS entry
+instead of two.
 
 ### Ordering (`lib/toposort.nix`)
 
@@ -271,25 +282,51 @@ For each path in dependency order, rendering branches on `kind`:
   `print count-only where ...` (a plain number) rather than
   `find where ...` (an id-or-empty-string) to check existence, since it
   sidesteps how `find` behaves when a query matches more than one entry.
+  `kind = "unordered"` with `prune = true` uses a different, id-tracking
+  block instead of this guard -- see below.
 - `"settings"`: emit `<path>` then a single `set k=v k=v ...` line built
   from the `settings` attrset.
 
-For `"unordered"` entries with `prune = true`, an additional block follows
-the guards, per path:
+For `kind = "unordered"` with `prune = true`, `ignore` is resolved to ids
+first, before any item is processed, once per path:
 ```
-:foreach i in=[<path> find] do={
-  :local ignored false
-  :if ([<path> get $i k]=v ...) do={ :set ignored true }   -- one per `ignore` predicate
-  :local keep false
-  :if ([<path> get $i k]=v ...) do={ :set keep true }      -- one per current item's `find`
-  :if (!$ignored and !$keep) do={ <path> remove $i }
+:local ignore ({})
+:set ignore ($ignore, [<path> find where k=v ...])   -- one per `ignore` predicate
+```
+Then each item's id is resolved and recorded in a per-path `$managed`
+list instead of using the guard block above, so the sweep that follows
+doesn't have to re-derive "is this entry one of ours" from `find` a
+second time:
+```
+:local managed ({})
+{
+  :local item [<path> find where k=v ...]
+  :if ([:len $item] > 1) do={ :error (...) }
+  :if ($item = "" || [:find $ignore $item -1] >= 0) do={
+    :set item [<create item's text>]
+  }
+  :set managed ($managed, $item)
 }
 ```
-Built as `:if`/`:foreach` script logic rather than a single composed
-`where` query, since RouterOS's `where` mini-language doesn't reliably
-document boolean composition (`or`, grouped negation) across many
-conditions, whereas `:if`'s conditional syntax is the same well-documented
-mechanism already used for the guard blocks above.
+one such block per item, in a fresh scope so `$item` doesn't collide
+across items. A `find` match that's actually one of the ids already in
+`$ignore` is treated the same as no match at all, so declaring an item
+never silently "adopts" an entry the caller asked to leave alone -- a new
+one is `add`-ed instead, even though that means two entries can end up
+satisfying the same `find` query (the ignored one, and routnix's own).
+`create`'s result is captured directly as the id -- a query that matched
+nothing (or only an ignored entry) before creating exactly one new entry
+can't turn up more than one match afterwards, so only the lookup *before*
+creating needs the ambiguity check.
+
+The sweep itself is then a single array-membership check per existing
+entry, rather than re-testing every entry against every current item's
+`find` and every `ignore` predicate:
+```
+:foreach i in=[<path> find] do={
+  :if ([:find ($managed,$ignore) $i -1] < 0) do={ <path> remove $i }
+}
+```
 
 Entries that render to nothing (empty `items`/`settings`, and no `prune`)
 are skipped entirely. Scalar value rendering rules (shared by all of the
@@ -298,6 +335,11 @@ above, and by `find`'s query and `create`'s default body):
 - `bool` → `yes` / `no`
 - `int` → bare (`22`, not `"22"`)
 - `str` → double-quoted
+
+`find`'s rendered query additionally supports a field being absent (used
+by `kind = "unordered"`'s derived `find`, see "Resource kinds" above, for
+a field some items set and others don't): it renders as `!k` rather than
+`k=v`.
 
 Field order *within* one rendered line is whatever Nix's `attrsOf`
 iteration gives us (alphabetical) — this doesn't matter to RouterOS. Item
@@ -385,11 +427,13 @@ is what's still open per kind.
   left alone even if its other fields drifted); and the ownership gap
   described below (`find` matches on value alone) applies here too.
 - **`"unordered"` / keyed** tables (address-lists, DHCP static leases, IP
-  pools) — order doesn't matter. **Settled:** find-by-identity (`find`,
-  required per entry) then `add` only if missing (`create`, defaulting to
-  a plain `add` of the item's own fields). **Still open:** update-if-differs
-  is not implemented — an existing match is left alone even if its other
-  fields have drifted from the declared item, so this isn't yet full
+  pools) — order doesn't matter. **Settled:** find-by-identity (derived
+  automatically from each item's own declared fields, no `find` option or
+  escape hatch yet for this kind -- see "Resource kinds" above) then
+  `add` only if missing (`create`, defaulting to a plain `add` of the
+  item's own fields). **Still open:** update-if-differs is not
+  implemented — an existing match is left alone even if its other fields
+  have drifted from the declared item, so this isn't yet full
   find-then-upsert.
 - **`"settings"`** (non-table, singleton config objects — e.g.
   `/ip/dhcp-server/config`) — **settled and implemented**: a single `set`
@@ -410,8 +454,9 @@ Item *shape* is settled: `items` is a plain list for every kind that uses
 it (`"ordered"`/`"unordered"`/`"effect"`), regardless of whether order is
 semantically meaningful — list order is simply ignored by
 `"unordered"`/`"effect"` rendering rather than needing a different
-(attrset-keyed) shape. Identity for `"unordered"`/`"effect"` comes from the
-required `find` function, not from list vs. attrset structure.
+(attrset-keyed) shape. Identity for `"unordered"` is derived automatically
+from each item's own fields; for `"effect"` it comes from the required
+`find` function; neither comes from list vs. attrset structure.
 
 ### Ownership and identity
 
@@ -435,13 +480,16 @@ Also discussed: an escape hatch for **natural, composite-field identity**
 (e.g. matching address-lists by `address` + `list` together, since an
 address alone isn't unique across lists) for cases where a synthetic tag
 isn't wanted or isn't available (no `comment` field on that resource).
-**Settled and implemented** as `kind = "unordered" | "effect"`'s required
-`find` (`item -> attrsOf itemValueType`, rendered as
-`print count-only where k=v ...`, compared against `0`)
-— every such entry states its own identity explicitly, composite or not.
-Deliberately required rather than defaulting to an "always add
-unconditionally" fallback, since that would silently duplicate entries on
-reapply.
+**Settled and implemented**, differently per kind: for `kind = "effect"`,
+via a required `find` (`item -> attrsOf itemValueType`, rendered as
+`print count-only where k=v ...`, compared against `0`) that every such
+entry states explicitly, composite or not, deliberately required rather
+than defaulting to an "always add unconditionally" fallback (which would
+silently duplicate entries on reapply); for `kind = "unordered"`, identity
+is instead derived automatically from each item's own declared fields
+(composite identity falls out of this for free, without stating it), with
+no escape hatch yet to override it with a narrower or synthetic one — see
+"Resource kinds" above.
 
 Whatever identity mechanism is used, the `find` query should still require
 the ownership tag to be present wherever possible — matching by value alone
@@ -468,15 +516,15 @@ lands later.
 **Partially settled and implemented** for `kind = "unordered"`:
 stale-entry cleanup via `prune`/`ignore` (see "Resource kinds" above) —
 but as an approximation of ownership, not the tag-based mechanism
-discussed above. `prune` removes anything not matched by a current item's
-`find` and not covered by `ignore`, with no notion of "entries we created"
-distinct from "entries that happen to match" — so it inherits the same
-adoption risk noted above, applied to deletion instead of update: an
-entry `routnix` never created can still be pruned if it isn't declared and
-isn't explicitly `ignore`d. A tag-based ownership mechanism, if it lands
-later, would let pruning (and adoption-avoidance generally) be precise
-instead of relying on the caller's `ignore` list to enumerate every
-un-owned entry by hand.
+discussed above. `prune` removes anything whose id isn't recorded as
+managed (resolved via a current item's derived identity) or covered by
+`ignore`, with no notion of "entries we created" distinct from "entries
+that happen to match" — so it inherits the same adoption risk noted
+above, applied to deletion instead of update: an entry `routnix` never
+created can still be pruned if it isn't declared and isn't explicitly
+`ignore`d. A tag-based ownership mechanism, if it lands later, would let
+pruning (and adoption-avoidance generally) be precise instead of relying
+on the caller's `ignore` list to enumerate every un-owned entry by hand.
 
 ### High-level modules over the low-level DSL
 

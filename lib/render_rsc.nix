@@ -2,7 +2,10 @@
 let
   inherit (lib)
     concatStringsSep
+    concatMap
     mapAttrsToList
+    genAttrs
+    unique
     filter
     splitString
     removeSuffix
@@ -23,6 +26,17 @@ let
   # Renders an attrset of RouterOS fields into `k=v k=v ...` form, e.g. for
   # use after `add`/`set`, or inside a `print count-only where ...` query.
   renderArgs = args: concatStringsSep " " (mapAttrsToList (k: v: "${k}=${renderValue v}") args);
+
+  # Renders an attrset of RouterOS fields as a `where`-clause query, e.g.
+  # for use after `find`/`print ... where`. Like `renderArgs`, but a
+  # `null` value -- used by `deriveFind` below for a field a particular
+  # item doesn't set -- renders as `!k`, RouterOS's syntax for "this field
+  # isn't set", instead of `k=v`.
+  renderQuery =
+    fields:
+    concatStringsSep " " (
+      mapAttrsToList (k: v: if v == null then "!${k}" else "${k}=${renderValue v}") fields
+    );
 
   # Indents every line of `text` by two spaces, for embedding inside a
   # `:if (...) do={ }` block.
@@ -52,7 +66,7 @@ let
   renderOrderedItem =
     path: find: item: laterItems:
     let
-      idExpr = i: "[${path} find where ${renderArgs (find i)}]";
+      idExpr = i: "[${path} find where ${renderQuery (find i)}]";
 
       destLines = [ ":local dest \"\"" ] ++ map (l: ":if ($dest = \"\") do={ :set dest ${idExpr l} }") laterItems;
 
@@ -117,7 +131,7 @@ let
   renderGuardedItem =
     path: find: create: item:
     let
-      query = renderArgs (find item);
+      query = renderQuery (find item);
       body = create item;
     in
     ''
@@ -132,45 +146,94 @@ let
     else
       concatStringsSep "\n" ([ path ] ++ map (renderGuardedItem path find create) items);
 
-  # Renders `fields` as a RouterOS boolean expression testing `$i`'s
-  # values at `path`, e.g. `[<path> get $i address]="1.2.3.0/24" and ...`.
-  renderFieldMatch =
-    path: fields:
-    concatStringsSep " and " (
-      mapAttrsToList (k: v: "[${path} get $i ${k}]=${renderValue v}") fields
-    );
-
-  # kind = "unordered" with `prune = true`: removes existing entries that
-  # neither match an `ignore` predicate nor `find` for any current item.
-  renderPrune =
-    path: find: ignore: items:
+  # kind = "unordered" with `prune = true`: like `renderGuardedItem`, but
+  # also resolves this item's id and records it in `$managed`, so the
+  # prune sweep below can tell managed entries apart from foreign ones by
+  # id, rather than re-testing every existing entry against every current
+  # item's `find`. `$ignore` (built once per path, before any item is
+  # processed -- see `renderUnordered`) is also treated as a non-match
+  # here: a `find` match that's actually an `ignore`d entry doesn't count
+  # as this item already being present, so declaring an item never
+  # silently "adopts" an entry the caller asked to leave alone -- a new
+  # one is `add`-ed instead. `create`'s result is captured directly as
+  # the new id -- a query that matched nothing (or only an ignored entry)
+  # before creating one new entry can't possibly match more than one now,
+  # so there's nothing to re-check after creating, only before.
+  renderManagedItem =
+    path: find: create: item:
     let
-      check = setVar: fields: ":if (${renderFieldMatch path fields}) do={ :set ${setVar} true }";
-      body = concatStringsSep "\n" (
-        [ ":local ignored false" ]
-        ++ map (check "ignored") ignore
-        ++ [ ":local keep false" ]
-        ++ map (item: check "keep" (find item)) items
-        ++ [ ":if (!$ignored and !$keep) do={ ${path} remove $i }" ]
-      );
+      query = renderQuery (find item);
+      body = concatStringsSep "\n" [
+        ":local item [${path} find where ${query}]"
+        ''
+          :if ([:len $item] > 1) do={
+            :error ("routnix: find matched more than one entry in ${path}")
+          }''
+        ''
+          :if ($item = "" || [:find $ignore $item -1] >= 0) do={
+            :set item [${create item}]
+          }''
+        ":set managed ($managed, $item)"
+      ];
     in
     ''
-      :foreach i in=[${path} find] do={
+      {
       ${indent body}
       }'';
 
-  # kind = "unordered": add-guard per item, then (if `prune`) remove
-  # existing entries `find` doesn't match for any current item and that
-  # `ignore` doesn't cover.
-  renderUnordered =
-    path: entry:
+  # kind = "unordered" with `prune = true`: removes existing entries whose
+  # id is in neither `$managed` (this run's resolved items, built by
+  # `renderManagedItem` above) nor `$ignore` (ids matching an `ignore`
+  # predicate, built by `renderUnordered` before any item is processed).
+  renderPrune =
+    path:
+    ''
+      :foreach i in=[${path} find] do={
+        :if ([:find ($managed,$ignore) $i -1] < 0) do={ ${path} remove $i }
+      }'';
+
+  # kind = "unordered": derives `find` from `items` themselves (no
+  # explicit `find` for this kind, no escape hatch yet) -- an item's
+  # identity is its own declared fields, plus an explicit "not set" for
+  # any field some other item in the same list uses but this one doesn't,
+  # so e.g. one item having a `comment` and another not doesn't make them
+  # indistinguishable from each other.
+  deriveFind =
+    items:
     let
+      allKeys = unique (concatMap builtins.attrNames items);
+    in
+    item: genAttrs allKeys (k: if item ? ${k} then item.${k} else null);
+
+  # kind = "unordered": without `prune`, a plain add-guard per item (see
+  # `renderGuardedItem`). With `prune`, `$ignore` is resolved to ids
+  # first (so item creation can see it -- see `renderManagedItem`), then
+  # each item is resolved via `renderManagedItem`, recording its id in
+  # `$managed`, then `renderPrune` removes existing entries that are
+  # neither `$managed` nor in `$ignore`.
+  renderUnordered =
+    path: find: entry:
+    let
+      ignoreSetup = concatStringsSep "\n" (
+        [ ":local ignore ({})" ]
+        ++ map (
+          fields: ":set ignore ($ignore, [${path} find where ${renderQuery fields}])"
+        ) entry.ignore
+      );
       addChunk =
-        if entry.items == [ ] then
+        if entry.prune then
+          concatStringsSep "\n" (
+            [
+              ignoreSetup
+              ":local managed ({})"
+            ]
+            ++ map (renderManagedItem path find entry.create) entry.items
+          )
+        else if entry.items == [ ] then
           null
         else
-          concatStringsSep "\n" (map (renderGuardedItem path entry.find entry.create) entry.items);
-      pruneChunk = if entry.prune then renderPrune path entry.find entry.ignore entry.items else null;
+          concatStringsSep "\n" (map (renderGuardedItem path find entry.create) entry.items);
+      pruneChunk = if entry.prune then renderPrune path else null;
       body = filter (c: c != null) [
         addChunk
         pruneChunk
@@ -188,16 +251,30 @@ let
 
   renderEntry =
     path: entry:
+    let
+      # "ordered"/"effect" require an explicit `find`; "unordered" has no
+      # escape hatch yet and always derives its own from `items` instead.
+      find = if entry.kind == "unordered" then deriveFind entry.items else entry.find;
+      # All three rely on `find` to tell items apart: two items whose
+      # `find` produces the same query would silently collapse into a
+      # single RouterOS entry instead of two.
+      queries = if entry.kind == "settings" then [ ] else map find entry.items;
+      duplicate = filter (q: builtins.length (filter (q2: q2 == q) queries) > 1) queries;
+    in
     if entry.prune && entry.kind != "unordered" then
       throw ''routnix: `prune = true` is only valid for kind = "unordered" (at ${path})''
+    else if (entry.kind == "ordered" || entry.kind == "effect") && entry.find == null then
+      throw ''routnix: `find` is required for kind = "${entry.kind}" (at ${path})''
+    else if duplicate != [ ] then
+      throw ''routnix: `find` doesn't uniquely identify every item in ${path} -- multiple items produce ${renderQuery (builtins.head duplicate)}''
     else if entry.kind == "settings" then
       renderSettings path entry.settings
     else if entry.kind == "ordered" then
-      renderOrderedItems path entry.find entry.items
+      renderOrderedItems path find entry.items
     else if entry.kind == "unordered" then
-      renderUnordered path entry
+      renderUnordered path find entry
     else # "effect"
-      renderGuardedItems path entry.find entry.create entry.items;
+      renderGuardedItems path find entry.create entry.items;
 in
 {
   inherit renderValue renderArgs;

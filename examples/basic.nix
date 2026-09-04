@@ -7,10 +7,6 @@
         comment = "nomanage";
       }
     ];
-    find = item: {
-      address = item.address;
-      list = item.list;
-    };
     items = [
       {
         address = "192.168.1.0/24";

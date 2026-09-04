@@ -29,8 +29,8 @@ let
             `add`-ed (anchored via `place-before` where needed) and
             present-but-misplaced ones are repositioned via `move`.
           - `"unordered"` (e.g. routes, address-lists, VLANs): only
-            presence matters, so an item is `add`-ed only if `find`
-            doesn't already match an existing entry.
+            presence matters, so an item is `add`-ed only if it doesn't
+            already match an existing entry, by its own declared fields.
           - `"settings"` (e.g. `/ip/dhcp-server/config`): `settings`
             fields are applied as a single `set`.
           - `"effect"` (e.g. `/user/ssh-keys`): like `"unordered"`, but
@@ -69,14 +69,16 @@ let
       };
 
       find = mkOption {
-        type = types.functionTo (types.attrsOf itemValueType);
+        type = types.nullOr (types.functionTo (types.attrsOf itemValueType));
+        default = null;
         description = ''
-          For `kind = "unordered" | "effect" | "ordered"`. Given an item
-          from `items`, returns the fields an existing entry must match
-          for that item to be considered already present. For
-          `"ordered"`, this identity is also used to check the item's
-          position relative to its declared neighbors. Ignored for
-          `"settings"`.
+          For `kind = "ordered" | "effect"`, required: given an item from
+          `items`, returns the fields an existing entry must match for
+          that item to be considered already present. For `"ordered"`,
+          this identity is also used to check the item's position
+          relative to its declared neighbors. Ignored for `"unordered"`
+          (identity is derived automatically from each item's own fields
+          instead) and `"settings"`.
         '';
       };
 
