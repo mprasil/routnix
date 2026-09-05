@@ -18,7 +18,6 @@
   routeros.config."/ip/firewall/filter" = {
     kind = "ordered";
     after = ["/ip/firewall/address-list"];
-    find = item: {comment = item.comment;};
     items = [
       {
         chain = "input";

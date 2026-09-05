@@ -25,9 +25,12 @@ let
 
           - `"ordered"` (e.g. firewall filter/mangle/nat, routing rules):
             order matters, so items are kept in declared order relative
-            to each other -- `find` locates each item, missing ones are
-            `add`-ed (anchored via `place-before` where needed) and
-            present-but-misplaced ones are repositioned via `move`.
+            to each other -- identity is derived automatically from each
+            item's own fields (like `"unordered"`), missing items are
+            `add`-ed already placed as close to their declared position
+            as possible, and present-but-misplaced ones are repositioned
+            via `move`. Existing entries that are no longer declared are
+            always removed.
           - `"unordered"` (e.g. routes, address-lists, VLANs): only
             presence matters, so an item is `add`-ed only if it doesn't
             already match an existing entry, by its own declared fields.
@@ -72,13 +75,11 @@ let
         type = types.nullOr (types.functionTo (types.attrsOf itemValueType));
         default = null;
         description = ''
-          For `kind = "ordered" | "effect"`, required: given an item from
-          `items`, returns the fields an existing entry must match for
-          that item to be considered already present. For `"ordered"`,
-          this identity is also used to check the item's position
-          relative to its declared neighbors. Ignored for `"unordered"`
-          (identity is derived automatically from each item's own fields
-          instead) and `"settings"`.
+          For `kind = "effect"`, required: given an item from `items`,
+          returns the fields an existing entry must match for that item
+          to be considered already present. Ignored for
+          `"ordered"`/`"unordered"` (identity is derived automatically
+          from each item's own fields instead) and `"settings"`.
         '';
       };
 
@@ -109,7 +110,9 @@ let
         description = ''
           For `kind = "unordered"`: removes existing entries not matched
           by `find` for any current item and not covered by `ignore`.
-          Off by default. Only valid for `kind = "unordered"`.
+          Off by default. For `kind = "ordered"`, entries are always
+          pruned this way regardless of this option's value. Only valid
+          for `kind = "unordered"` or `"ordered"`.
         '';
       };
 
@@ -117,9 +120,10 @@ let
         type = types.listOf (types.attrsOf itemValueType);
         default = [ ];
         description = ''
-          For `kind = "unordered"` with `prune = true`: entries matching
-          any of these field predicates are left alone by pruning, even
-          if not declared in `items` -- for entries managed by hand or by
+          For `kind = "unordered"` with `prune = true`, or `kind =
+          "ordered"` (always pruned): entries matching any of these
+          field predicates are left alone by pruning, even if not
+          declared in `items` -- for entries managed by hand or by
           another tool.
         '';
       };

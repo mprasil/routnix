@@ -54,6 +54,7 @@ Design priorities:
 modules/routeros.nix    -- the evalModules options (RouterOS-specific)
 lib/toposort.nix         -- before/after -> ordered list, via lib.toposort
 lib/render_rsc.nix       -- ordered routeros.config -> .rsc text
+lib/render_rsc/          -- per-kind rendering helpers used by render_rsc.nix
 lib/default.nix          -- glue: evalConfig { modules } -> evaluated config + .rsc
 examples/basic.nix       -- example config
 examples/cycle.nix       -- example that intentionally triggers a cycle error
@@ -113,15 +114,16 @@ every entry declares a required `kind` — no default, since picking one is
 a meaningful decision rather than something safe to fall back on:
 
 - **`"ordered"`** — position matters (firewall filter/mangle/nat, routing
-  rules, queue trees). `find` (same shape as `"unordered"`, see below)
-  locates each item; missing items are `add`-ed and present-but-misplaced
-  ones are `move`-d, so reapplying neither duplicates entries nor
-  disturbs ones already correctly placed, e.g.:
+  rules, queue trees). Identity is derived automatically from each
+  item's own fields, exactly like `"unordered"` (see below, no `find`
+  option); missing items are `add`-ed already placed as close to their
+  declared position as possible, present-but-misplaced ones are
+  repositioned via `move`, and entries that are no longer declared are
+  always removed, e.g.:
 
   ```nix
   routeros.config."/ip/firewall/filter" = {
     kind = "ordered";
-    find = item: { comment = item.comment; };
     items = [
       { chain = "input"; action = "accept"; protocol = "icmp"; comment = "allow-icmp"; }
       { chain = "input"; action = "drop"; comment = "drop-rest"; }
@@ -129,18 +131,31 @@ a meaningful decision rather than something safe to fall back on:
   };
   ```
 
-  Correctness only means declared items stay in declared order *relative
-  to each other* — entries `find` doesn't match (foreign or unmanaged
-  ones) can sit interleaved among them untouched. For each item, in a
-  fresh script scope, rendering resolves `dest` to the id of the nearest
-  declared item *after* it that already exists (trying each in turn, at
-  apply time, since Nix has no visibility into router state at eval
-  time), then either `add`s the item (via `place-before=$dest` if
-  resolved) or, if it's already present, `move`s it to `dest` only if it
-  doesn't already come after the previous item. This replaced an earlier
-  remove-all-then-readd idea, ruled out for dropping rule counters and
-  connection-tracking state and momentarily leaving the resource
-  unprotected.
+  Reconciliation is two-phase, threading a `$managed` list of resolved
+  ids across items via a shared, per-path scope. First, each item is
+  resolved in turn, in a fresh script scope: if missing, it's `add`-ed
+  — the first declared item `place-before=`s whatever currently sits at
+  the top of the table (or is added plainly if the path is currently
+  empty), every other item `place-before=`s `.nextid` of the *previous*
+  declared item's just-resolved id — so a freshly-created item ends up
+  correctly placed immediately, without waiting on a second pass. This
+  replaced an earlier remove-all-then-readd idea, ruled out for dropping
+  rule counters and connection-tracking state and momentarily leaving
+  the resource unprotected. Second, a final pass walks `$managed` once
+  more and `move`s anything not already immediately following its
+  predecessor into place — the one case add-time placement can't cover:
+  an already-present item repositioned since the last apply by
+  something other than routnix. Both phases target *immediate*
+  adjacency to the previous declared item, so declared items end up
+  contiguous — unlike `"unordered"`, a foreign entry interleaved between
+  two declared items doesn't survive reapplying; it gets pushed out of
+  the gap.
+
+  Unlike `"unordered"`, `prune` (see below) isn't optional here: since
+  identity is the *whole* item, any field edit makes the previous
+  version of that item stop matching, leaving it behind as an unmanaged
+  duplicate once the edited item is re-added — routnix always sweeps up
+  anything not in `$managed` or `ignore` to avoid accumulating these.
 
 - **`"unordered"`** — presence, not position, matters (routes,
   address-lists, VLANs). Each item is only `add`-ed if it doesn't already
@@ -153,7 +168,7 @@ a meaningful decision rather than something safe to fall back on:
   };
   ```
 
-  Unlike `"ordered"`/`"effect"` (see below), this kind has no `find`
+  Unlike `"effect"` (see below), this kind has no `find`
   option -- and no escape hatch yet to override the following with one:
   identity is derived automatically from each item's own declared fields,
   rendered as `print count-only where k=v ...` (compared against `0`,
@@ -174,11 +189,12 @@ a meaningful decision rather than something safe to fall back on:
   `foreach` over the path's existing entries at apply time (Nix has no
   visibility into router state at eval time) then removes anything whose
   id is in neither list. Off by default, since removing entries is
-  destructive. Only valid for `kind = "unordered"`; setting `prune` on any
-  other `kind` is an error. This only approximates ownership (see
-  "Ownership and identity" below) — an entry that happens to match neither
-  `ignore` nor any current `find` is removed even if routnix never created
-  it.
+  destructive; `kind = "ordered"` (see above) uses this same mechanism
+  unconditionally instead, regardless of this option's value. Setting
+  `prune` on `"settings"`/`"effect"` is an error. This only approximates
+  ownership (see "Ownership and identity" below) — an entry that happens
+  to match neither `ignore` nor any current `find` is removed even if
+  routnix never created it.
 
 - **`"settings"`** — a non-table, singleton config object (e.g.
   `/ip/dhcp-server/config`). `settings` (a single `attrsOf itemValueType`,
@@ -246,32 +262,44 @@ garbage output (verified against a deliberately cyclic example).
 
 For each path in dependency order, rendering branches on `kind`:
 
-- `"ordered"`: emit `<path>` then, per item, a scoped reconciliation
-  block:
-  ```
-  {
-    :local dest ""
-    :if ($dest = "") do={ :set dest [<path> find where k=v ...] }   -- one per later declared item, first existing one wins
-    :local id [<path> find where k=v ...]
-    :if ($id = "") do={
-      add [place-before=$dest] k=v ...
-      :set id [<path> find where k=v ...]
-    } else={
-      :if ($anchor != "") do={
-        :local ok false
-        :foreach j in=[<path> find] do={
-          :if ($j = $anchor) do={ :set ok true }
-          :if ($j = $id) do={ :if (!$ok) do={ move $id [destination=$dest] } }
+- `"ordered"`: emit `<path>` then:
+  - the same ignore-resolution + `$managed` setup described below for
+    `kind = "unordered"` with `prune = true` — always emitted here,
+    since pruning isn't optional for this kind;
+  - per item, the same per-item resolve block described below, except
+    the create step: the first declared item's is
+    `add place-before=([find]->0) k=v ...` (a plain `add` if the path
+    is currently empty), and every later item `i`'s is
+    `add place-before=([get ($managed->(i-1))]->".nextid") k=v ...` —
+    placing a freshly-created item immediately next to its
+    already-resolved predecessor, rather than waiting on the reorder
+    pass below to fix its position;
+  - a final reorder pass over `$managed`, to fix an item whose position
+    drifted since the last apply from something other than routnix (the
+    one case add-time placement above can't cover):
+    ```
+    {
+      :local first ($managed->0)
+      :local firstExisting ([find]->0)
+      :if ($first != $firstExisting) do={ move $first destination=$firstExisting }
+      :if ([:len $managed] > 1) do={
+        :local prev $first
+        :for i from=1 to=([:len $managed] - 1) do={
+          :local cur ($managed->$i)
+          :local dest ([get $prev]->".nextid")
+          :if ($cur != $dest) do={ move $cur destination=$dest }
+          :set prev $cur
         }
       }
     }
-    :set anchor $id
-  }
-  ```
-  built from `find item` for both this item's own identity and (as a
-  fallback chain) each later item's. `$anchor` (the previous item's id)
-  is carried across items via a shared, per-path scope opened by
-  `:local anchor ""` before the first item's block.
+    ```
+    `.nextid` (a RouterOS-internal per-entry property: the id of the
+    entry immediately following it, or a sentinel value when it's last
+    — which `move`/`add`'s `destination`/`place-before` both accept
+    directly, moving/placing at the end) is what lets both this pass
+    and the add-time placement above use a single lookup per item
+    instead of a forward search over every later item;
+  - the same prune sweep described below.
 - `"unordered"` / `"effect"`: emit `<path>` then, per item, a guard block:
   ```
   :if ([<path> print count-only where k=v ...] = 0) do={
@@ -287,8 +315,9 @@ For each path in dependency order, rendering branches on `kind`:
 - `"settings"`: emit `<path>` then a single `set k=v k=v ...` line built
   from the `settings` attrset.
 
-For `kind = "unordered"` with `prune = true`, `ignore` is resolved to ids
-first, before any item is processed, once per path:
+For `kind = "unordered"` with `prune = true`, and always for
+`kind = "ordered"`, `ignore` is resolved to ids first, before any item is
+processed, once per path:
 ```
 :local ignore ({})
 :set ignore ($ignore, [<path> find where k=v ...])   -- one per `ignore` predicate
@@ -328,18 +357,21 @@ entry, rather than re-testing every entry against every current item's
 }
 ```
 
-Entries that render to nothing (empty `items`/`settings`, and no `prune`)
-are skipped entirely. Scalar value rendering rules (shared by all of the
-above, and by `find`'s query and `create`'s default body):
+Entries that render to nothing (empty `items`/`settings`, and no
+`prune`) are skipped entirely. Scalar value rendering rules (shared by
+all of the above, and by `find`'s query and `create`'s default body):
 
 - `bool` → `yes` / `no`
 - `int` → bare (`22`, not `"22"`)
 - `str` → double-quoted
 
 `find`'s rendered query additionally supports a field being absent (used
-by `kind = "unordered"`'s derived `find`, see "Resource kinds" above, for
-a field some items set and others don't): it renders as `!k` rather than
-`k=v`.
+by `kind = "unordered"`/`"ordered"`'s derived `find`, see "Resource
+kinds" above, for a field some items set and others don't): it renders
+as `!k` rather than `k=v`. `kind = "ordered"`'s query rendering is the
+one exception to the `int` rule above: it quotes `int`s too (`"22"`),
+for RouterOS v6 `where`-clause compatibility — not yet applied to
+`"unordered"`/`"effect"`'s queries.
 
 Field order *within* one rendered line is whatever Nix's `attrsOf`
 iteration gives us (alphabetical) — this doesn't matter to RouterOS. Item
@@ -417,15 +449,20 @@ is what's still open per kind.
 
 - **`"ordered"` / positional** tables (firewall filter/mangle/nat, routing
   rules, queue trees) — position matters; RouterOS evaluates these
-  top-to-bottom. **Settled and implemented**: find-by-identity (`find`,
-  required, same shape as `"unordered"`) plus incremental reconciliation
-  via `add`/`add place-before=` and `move` (see "Resource kinds" above) —
-  not remove-all-then-readd, which was ruled out for dropping rule
-  counters and connection-tracking state and momentarily leaving the
-  resource unprotected. **Still open**: like `"unordered"`,
-  update-if-differs isn't implemented (a present, correctly-placed item is
-  left alone even if its other fields drifted); and the ownership gap
-  described below (`find` matches on value alone) applies here too.
+  top-to-bottom. **Settled and implemented**: identity is derived
+  automatically from each item's own fields (same as `"unordered"`, no
+  `find` option), incremental reconciliation via `add`/`add place-before=`
+  and `move` (see "Resource kinds" above) — not remove-all-then-readd,
+  which was ruled out for dropping rule counters and connection-tracking
+  state and momentarily leaving the resource unprotected — and pruning
+  is mandatory rather than optional, since identity being the whole item
+  means any field edit leaves the old version behind as an unmanaged
+  duplicate once the edited item is re-added. That last point also means
+  update-if-differs, unlike `"unordered"`, isn't really "still open" here
+  in practice: a field edit converges via remove-old/add-new rather than
+  an in-place `set`, just not by that mechanism. **Still open**: the
+  ownership gap described below (identity matches on value alone)
+  applies here too, now for pruning as well as positioning.
 - **`"unordered"` / keyed** tables (address-lists, DHCP static leases, IP
   pools) — order doesn't matter. **Settled:** find-by-identity (derived
   automatically from each item's own declared fields, no `find` option or
@@ -454,9 +491,10 @@ Item *shape* is settled: `items` is a plain list for every kind that uses
 it (`"ordered"`/`"unordered"`/`"effect"`), regardless of whether order is
 semantically meaningful — list order is simply ignored by
 `"unordered"`/`"effect"` rendering rather than needing a different
-(attrset-keyed) shape. Identity for `"unordered"` is derived automatically
-from each item's own fields; for `"effect"` it comes from the required
-`find` function; neither comes from list vs. attrset structure.
+(attrset-keyed) shape. Identity for `"unordered"`/`"ordered"` is derived
+automatically from each item's own fields; for `"effect"` it comes from
+the required `find` function; neither comes from list vs. attrset
+structure.
 
 ### Ownership and identity
 
@@ -485,11 +523,11 @@ via a required `find` (`item -> attrsOf itemValueType`, rendered as
 `print count-only where k=v ...`, compared against `0`) that every such
 entry states explicitly, composite or not, deliberately required rather
 than defaulting to an "always add unconditionally" fallback (which would
-silently duplicate entries on reapply); for `kind = "unordered"`, identity
-is instead derived automatically from each item's own declared fields
-(composite identity falls out of this for free, without stating it), with
-no escape hatch yet to override it with a narrower or synthetic one — see
-"Resource kinds" above.
+silently duplicate entries on reapply); for `kind = "unordered"`/`"ordered"`,
+identity is instead derived automatically from each item's own declared
+fields (composite identity falls out of this for free, without stating
+it), with no escape hatch yet to override it with a narrower or
+synthetic one — see "Resource kinds" above.
 
 Whatever identity mechanism is used, the `find` query should still require
 the ownership tag to be present wherever possible — matching by value alone
@@ -504,27 +542,31 @@ later is open regardless.
 
 Not decided: exact tag format, whether the prefix is globally configurable.
 
-`kind = "ordered"`'s `find`-based `place-before`/`move` reconciliation
-(see "Resource kinds" above) was implemented without waiting on this —
-it matches on value alone, same as `"unordered"`/`"effect"`, so a
-coincidentally-matching foreign entry could be misidentified as a
-declared item's position anchor and moved. This is accepted for now as
-the same adoption risk already noted above, just applied to positioning
-instead of update/prune — not solved by a tag-based mechanism, if one
-lands later.
+`kind = "ordered"`'s derived-identity-based `place-before`/`move`
+reconciliation (see "Resource kinds" above) was implemented without
+waiting on this — it matches on value alone, same as
+`"unordered"`/`"effect"`, so a coincidentally-matching foreign entry
+could be misidentified as a declared item's position anchor and moved.
+This is accepted for now as the same adoption risk already noted above,
+just applied to positioning instead of update/prune — not solved by a
+tag-based mechanism, if one lands later. Since pruning is mandatory for
+this kind (see "Resource kinds" above), the same risk also applies to
+removal here, exactly as it already does for `"unordered"`'s optional
+`prune` below.
 
-**Partially settled and implemented** for `kind = "unordered"`:
-stale-entry cleanup via `prune`/`ignore` (see "Resource kinds" above) —
-but as an approximation of ownership, not the tag-based mechanism
-discussed above. `prune` removes anything whose id isn't recorded as
-managed (resolved via a current item's derived identity) or covered by
-`ignore`, with no notion of "entries we created" distinct from "entries
-that happen to match" — so it inherits the same adoption risk noted
-above, applied to deletion instead of update: an entry `routnix` never
-created can still be pruned if it isn't declared and isn't explicitly
-`ignore`d. A tag-based ownership mechanism, if it lands later, would let
-pruning (and adoption-avoidance generally) be precise instead of relying
-on the caller's `ignore` list to enumerate every un-owned entry by hand.
+**Partially settled and implemented** for `kind = "unordered"` (optional)
+and `kind = "ordered"` (mandatory): stale-entry cleanup via
+`prune`/`ignore` (see "Resource kinds" above) — but as an approximation
+of ownership, not the tag-based mechanism discussed above. `prune`
+removes anything whose id isn't recorded as managed (resolved via a
+current item's derived identity) or covered by `ignore`, with no notion
+of "entries we created" distinct from "entries that happen to match" —
+so it inherits the same adoption risk noted above, applied to deletion
+instead of update: an entry `routnix` never created can still be pruned
+if it isn't declared and isn't explicitly `ignore`d. A tag-based
+ownership mechanism, if it lands later, would let pruning (and
+adoption-avoidance generally) be precise instead of relying on the
+caller's `ignore` list to enumerate every un-owned entry by hand.
 
 ### High-level modules over the low-level DSL
 

@@ -15,11 +15,15 @@ tool/build step for ordering or rendering.
 
 ```nix
 {
-  routeros.config."/ip/firewall/address-list".items = [
-    { address = "192.168.1.0/24"; list = "trusted-ips"; }
-  ];
+  routeros.config."/ip/firewall/address-list" = {
+    kind = "unordered";
+    items = [
+      { address = "192.168.1.0/24"; list = "trusted-ips"; }
+    ];
+  };
 
   routeros.config."/ip/firewall/filter" = {
+    kind = "ordered";
     after = [ "/ip/firewall/address-list" ];
     items = [
       { chain = "input"; action = "accept"; protocol = "icmp"; }

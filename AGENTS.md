@@ -24,6 +24,7 @@ assume.
 modules/routeros.nix    -- evalModules options (the low-level DSL, RouterOS-specific)
 lib/toposort.nix         -- before/after -> ordered list (wraps lib.toposort)
 lib/render_rsc.nix       -- ordered routeros.config -> .rsc text
+lib/render_rsc/          -- per-kind rendering helpers used by render_rsc.nix
 lib/default.nix          -- evalConfig { modules } entry point
 examples/                -- example configs, incl. one that intentionally cycles
 flake.nix                -- packages.<system>.example, .cycle-example
