@@ -12,7 +12,7 @@
   routerOsVersion = "7.24.2";
 
   chrImage = pkgs.fetchzip {
-    name = "routeros-image-${routerOsVersion}";
+    name = "routeros-image-chr-v${routerOsVersion}";
     url = "https://download.mikrotik.com/routeros/${routerOsVersion}/chr-${routerOsVersion}.img.zip";
     hash = "sha256-NcAgtDE0WBMP6jt65sJb5RzGscrJ7nZaGcvu0zgiCfo=";
     stripRoot = false;

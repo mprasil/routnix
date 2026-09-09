@@ -3,45 +3,51 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs =
-    { nixpkgs, ... }:
-    let
-      forAllSystems = nixpkgs.lib.genAttrs [
-        "x86_64-linux"
-        "aarch64-linux"
-        "x86_64-darwin"
-        "aarch64-darwin"
-      ];
+  outputs = {nixpkgs, ...}: let
+    forAllSystems = nixpkgs.lib.genAttrs [
+      "x86_64-linux"
+      "aarch64-linux"
+      "x86_64-darwin"
+      "aarch64-darwin"
+    ];
 
-      routnixLib = import ./lib { lib = nixpkgs.lib; };
-    in
-    {
-      lib = routnixLib;
+    forTestSystems = nixpkgs.lib.genAttrs [
+      "x86_64-linux"
+    ];
 
-      packages = forAllSystems (
-        system:
-        let
+    lib = nixpkgs.lib;
+    routnixLib = import ./lib {inherit lib;};
+  in {
+    lib = routnixLib;
+
+    packages =
+      (forAllSystems (
+        system: let
           pkgs = nixpkgs.legacyPackages.${system};
-          example = routnixLib.evalConfig { modules = [ ./examples/basic.nix ]; };
-          cycleExample = routnixLib.evalConfig { modules = [ ./examples/cycle.nix ]; };
-        in
-        {
+          example = routnixLib.evalConfig {modules = [./examples/basic.nix];};
+          cycleExample = routnixLib.evalConfig {modules = [./examples/cycle.nix];};
+        in {
           example = pkgs.writeText "routnix-example.rsc" example.rsc;
           # Intentionally cyclic `after`/`after` between the two entries;
           # only exists to exercise the cycle-detection error path.
           cycle-example = pkgs.writeText "routnix-cycle-example.rsc" cycleExample.rsc;
         }
-      );
+      ))
+      // (forTestSystems (
+        system: let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in {
+          ros-vm-images = import ./images.nix {inherit lib pkgs;};
+          ros-vms = import ./vms.nix {inherit lib pkgs;};
+        }
+      ));
 
-      # Integration tests (x86_64-linux only; require KVM on the build host).
-      checks.x86_64-linux =
-        let
-          pkgs = nixpkgs.legacyPackages.x86_64-linux;
-        in
-        {
-          # Boot a RouterOS CHR VM, apply the example .rsc, and verify the
-          # resulting firewall and address-list configuration.
-          routeros = pkgs.callPackage ./checks/routeros.nix { inherit routnixLib; };
-        };
-    };
+    checks = forTestSystems (
+      system: let
+        pkgs = nixpkgs.legacyPackages.${system};
+      in {
+        routeros = pkgs.callPackage ./checks/routeros.nix {inherit routnixLib;};
+      }
+    );
+  };
 }
