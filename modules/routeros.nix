@@ -1,8 +1,7 @@
-{ lib, ... }:
-let
+{lib, ...}: let
   inherit (lib) mkOption types;
 
-  inherit (import ../lib/render_rsc.nix { inherit lib; }) renderArgs;
+  inherit (import ../lib/render_rsc.nix {inherit lib;}) renderArgs;
 
   # RouterOS field value: bool, int, or string.
   itemValueType = types.oneOf [
@@ -43,7 +42,7 @@ let
 
       before = mkOption {
         type = types.listOf types.str;
-        default = [ ];
+        default = [];
         description = ''
           Paths of other `routeros.config` entries that must be configured
           *after* this one, e.g. `[ "/ip/firewall/filter" ]`.
@@ -52,7 +51,7 @@ let
 
       after = mkOption {
         type = types.listOf types.str;
-        default = [ ];
+        default = [];
         description = ''
           Paths of other `routeros.config` entries that must be configured
           *before* this one.
@@ -61,7 +60,7 @@ let
 
       items = mkOption {
         type = types.listOf (types.attrsOf itemValueType);
-        default = [ ];
+        default = [];
         description = ''
           For `kind = "ordered"`: fields to `add`, one item per entry,
           kept in declared order relative to each other; also passed to
@@ -97,7 +96,7 @@ let
 
       settings = mkOption {
         type = types.attrsOf itemValueType;
-        default = { };
+        default = {};
         description = ''
           For `kind = "settings"`: fields applied as a single `set`.
           Ignored for other kinds.
@@ -118,7 +117,7 @@ let
 
       ignore = mkOption {
         type = types.listOf (types.attrsOf itemValueType);
-        default = [ ];
+        default = [];
         description = ''
           For `kind = "unordered"` with `prune = true`, or `kind =
           "ordered"` (always pruned): entries matching any of these
@@ -129,11 +128,10 @@ let
       };
     };
   };
-in
-{
+in {
   options.routeros.config = mkOption {
     type = types.attrsOf (types.submodule entryModule);
-    default = { };
+    default = {};
     description = ''
       RouterOS configuration, keyed by full RouterOS path (e.g.
       `"/ip/firewall/filter"`). This is the low-level, path-granularity,
