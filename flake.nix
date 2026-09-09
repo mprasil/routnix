@@ -20,8 +20,16 @@
   in {
     lib = routnixLib;
 
-    packages =
-      (forAllSystems (
+    packages = let
+      testStuff = forTestSystems (
+        system: let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in {
+          ros-vm-images = import ./images.nix {inherit lib pkgs;};
+          ros-vms = import ./vms.nix {inherit lib pkgs;};
+        }
+      );
+      mainPackages = forAllSystems (
         system: let
           pkgs = nixpkgs.legacyPackages.${system};
           example = routnixLib.evalConfig {modules = [./examples/basic.nix];};
@@ -32,15 +40,9 @@
           # only exists to exercise the cycle-detection error path.
           cycle-example = pkgs.writeText "routnix-cycle-example.rsc" cycleExample.rsc;
         }
-      ))
-      // (forTestSystems (
-        system: let
-          pkgs = nixpkgs.legacyPackages.${system};
-        in {
-          ros-vm-images = import ./images.nix {inherit lib pkgs;};
-          ros-vms = import ./vms.nix {inherit lib pkgs;};
-        }
-      ));
+      );
+    in
+      lib.recursiveUpdate mainPackages testStuff;
 
     checks = forTestSystems (
       system: let
