@@ -58,7 +58,9 @@ lib/render_rsc/          -- per-kind rendering helpers used by render_rsc.nix
 lib/default.nix          -- glue: evalConfig { modules } -> evaluated config + .rsc
 examples/basic.nix       -- example config
 examples/cycle.nix       -- example that intentionally triggers a cycle error
+checks/                  -- RouterOS CHR integration check (requires KVM)
 flake.nix                -- exposes packages.<system>.example (built .rsc)
+                            and checks.x86_64-linux.routeros
 ```
 
 ### The `routeros.config` option
@@ -393,6 +395,29 @@ rendered script. See "Multi-router / flake shape" below for how this is
 expected to extend to managing several routers from one flake — no rework
 anticipated there, just wrapping multiple calls to this function.
 
+### Integration check (`checks/`)
+
+`checks.x86_64-linux.routeros` boots a RouterOS CHR VM (currently 7.24.2,
+fetched from MikroTik) under QEMU, copies the `.rsc` rendered from
+`examples/basic.nix` to it over scp, runs `/import`, and inspects the
+result over SSH. It needs KVM on the build host
+(`requiredSystemFeatures = [ "kvm" ]`) and network access for the image.
+
+`checks/routeros_machine.py` wraps nixpkgs' `QemuMachine` for QEMU
+lifecycle and serial-output capture only — the NixOS backdoor shell
+(`.connect()`/`.execute()`) is never used, since RouterOS knows nothing
+about it — and adds SSH/SCP helpers. Its `QemuStartCommand` subclass omits
+virtio-serial/virtconsole so RouterOS keeps COM1 as its console. Commands
+run as the default `admin` account with its empty password; no setup step
+on the guest is needed. `checks/routeros_test.py` drives all of that and
+holds the assertions.
+
+What it checks today: that the four `/ip/firewall/filter` rules and the
+`/ip/firewall/address-list` entry declared by `examples/basic.nix` are
+present after the import. Not covered yet: rule *order*, idempotence on
+reapply, `prune`/`ignore` behavior, and `/import`'s own output (RouterOS
+can exit 0 even when the script errors).
+
 ## Open design space
 
 Everything below is unresolved. It's recorded here so we don't have to
@@ -600,6 +625,11 @@ Not yet implemented at all. Direction: scp the rendered `.rsc` to the
 router, `/import` it, wrapped in RouterOS's `/safe-mode take` / `release`
 so a failure rolls back rather than leaving a half-applied config. Open questions not yet discussed in depth: dry-run/plan
 support, and behavior on connection failure mid-apply.
+
+The integration check (see "Integration check" above) already does the
+scp + `/import` half of this non-interactively against a CHR VM, without
+`/safe-mode` — a working reference for the transport, not an apply
+implementation.
 
 ### Multi-router / flake shape
 

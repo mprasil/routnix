@@ -32,5 +32,16 @@
           cycle-example = pkgs.writeText "routnix-cycle-example.rsc" cycleExample.rsc;
         }
       );
+
+      # Integration tests (x86_64-linux only; require KVM on the build host).
+      checks.x86_64-linux =
+        let
+          pkgs = nixpkgs.legacyPackages.x86_64-linux;
+        in
+        {
+          # Boot a RouterOS CHR VM, apply the example .rsc, and verify the
+          # resulting firewall and address-list configuration.
+          routeros = pkgs.callPackage ./checks/routeros.nix { inherit routnixLib; };
+        };
     };
 }

@@ -27,7 +27,9 @@ lib/render_rsc.nix       -- ordered routeros.config -> .rsc text
 lib/render_rsc/          -- per-kind rendering helpers used by render_rsc.nix
 lib/default.nix          -- evalConfig { modules } entry point
 examples/                -- example configs, incl. one that intentionally cycles
-flake.nix                -- packages.<system>.example, .cycle-example
+checks/                  -- RouterOS CHR integration check (requires KVM)
+flake.nix                -- packages.<system>.example, .cycle-example,
+                            checks.x86_64-linux.routeros
 ```
 
 ## Comments and option descriptions
@@ -72,5 +74,10 @@ history belong in `DESIGN.md`, not in `.nix` files.
 - Don't run `git init` — the repo already exists.
 - Use the shell tool's working-directory option to run commands in this
   repo; don't `cd` into it or pass `-C`.
-- No CI/test suite yet; "does it build and does the rendered `.rsc` look
-  right" is the current bar.
+- `nix build .#checks.x86_64-linux.routeros -L` boots a RouterOS CHR VM
+  under QEMU, imports the `.rsc` rendered from `examples/basic.nix`, and
+  checks the result over SSH. Requires KVM on the build host and network
+  access to fetch the CHR image.
+- That check only asserts that the expected entries exist, not their order,
+  idempotence, or pruning — so "does it build and does the rendered `.rsc`
+  look right" is still the main bar.
