@@ -67,11 +67,6 @@ history belong in `DESIGN.md`, not in `.nix` files.
 - `nix build .#cycle-example` is expected to fail with a `routnix:
   dependency cycle detected` error — that's the cycle-detection path being
   exercised on purpose, not a bug.
-- This is a flake: new files must be `git add`ed (staged is enough, no
-  commit needed) before Nix will see them.
-- Stage files explicitly by path (`git add path/to/file`), not `git add -A`
-  / `git add .`.
-- Don't run `git init` — the repo already exists.
 - Use the shell tool's working-directory option to run commands in this
   repo; don't `cd` into it or pass `-C`.
 - `nix build .#checks.x86_64-linux.routeros -L` boots a RouterOS CHR VM
