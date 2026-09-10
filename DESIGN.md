@@ -60,7 +60,8 @@ examples/basic.nix       -- example config
 examples/cycle.nix       -- example that intentionally triggers a cycle error
 checks/                  -- RouterOS CHR integration check (requires KVM)
 flake.nix                -- exposes packages.<system>.example (built .rsc)
-                            and checks.x86_64-linux.routeros
+                            and checks.x86_64-linux.routeros-<alias>, one per
+                            RouterOS version in ros_versions.nix
 ```
 
 ### The `routeros.config` option
@@ -397,10 +398,16 @@ anticipated there, just wrapping multiple calls to this function.
 
 ### Integration check (`checks/`)
 
-`checks.x86_64-linux.routeros` boots a RouterOS CHR VM (currently 7.24.2,
-fetched from MikroTik) under QEMU, copies the `.rsc` rendered from
-`examples/basic.nix` to it over scp, runs `/import`, and inspects the
-result over SSH. It needs KVM on the build host
+`ros_versions.nix` lists the RouterOS CHR versions tested against, keyed by
+alias (e.g. `stable-v7`, `long-term-v6`); `images.nix` fetches each from
+MikroTik as a `packages.<system>.ros-vm-images.<alias>` derivation. `flake.nix`
+turns each of those images into its own
+`checks.<system>.routeros-<alias>` check, so a specific version can be built
+on its own and `nix flake check` exercises all of them.
+
+Each check boots its RouterOS CHR image under QEMU, copies the `.rsc`
+rendered from `examples/basic.nix` to it over scp, runs `/import`, and
+inspects the result over SSH. It needs KVM on the build host
 (`requiredSystemFeatures = [ "kvm" ]`) and network access for the image.
 
 `checks/routeros_machine.py` wraps nixpkgs' `QemuMachine` for QEMU

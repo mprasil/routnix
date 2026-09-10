@@ -2,22 +2,16 @@
 # routnix-generated .rsc can be imported and produces the expected config.
 #
 # Requires KVM on the build host (requiredSystemFeatures = ["kvm"]).
-# Run with:
-#   nix build .#checks.x86_64-linux.routeros -L
+# Run against a single RouterOS version:
+#   nix build .#checks.x86_64-linux.routeros-stable-v7 -L
+# Run against every version in ros_versions.nix:
 #   nix flake check
 {
   pkgs,
   routnixLib,
+  image,
+  name,
 }: let
-  routerOsVersion = "7.24.2";
-
-  chrImage = pkgs.fetchzip {
-    name = "routeros-image-chr-v${routerOsVersion}";
-    url = "https://download.mikrotik.com/routeros/${routerOsVersion}/chr-${routerOsVersion}.img.zip";
-    hash = "sha256-NcAgtDE0WBMP6jt65sJb5RzGscrJ7nZaGcvu0zgiCfo=";
-    stripRoot = false;
-  };
-
   # ------------------------------------------------------------------
   # routnix output: the .rsc generated from the basic example config
   # ------------------------------------------------------------------
@@ -41,7 +35,7 @@
   '';
 in
   pkgs.stdenv.mkDerivation {
-    name = "routeros-integration-test";
+    name = "routeros-integration-test-${name}";
 
     nativeBuildInputs = [
       pkgs.qemu_test
@@ -57,7 +51,7 @@ in
       export PYTHONPATH="${testHelpers}"
 
       ${testPython}/bin/python3 ${testHelpers}/routeros_test.py \
-        --image   "${chrImage}/chr-${routerOsVersion}.img" \
+        --image   "$(ls ${image}/*.img)" \
         --rsc     "${rscFile}" \
         --qemu    "$(command -v qemu-system-x86_64)" \
         --ssh     "$(command -v ssh)" \
@@ -67,5 +61,5 @@ in
       touch "$out/success"
     '';
 
-    meta.description = "routnix integration test against RouterOS ${routerOsVersion} CHR";
+    meta.description = "routnix integration test against RouterOS CHR image ${name}";
   }

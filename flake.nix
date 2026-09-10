@@ -3,7 +3,11 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = {nixpkgs, ...}: let
+  outputs = {
+    self,
+    nixpkgs,
+    ...
+  }: let
     forAllSystems = nixpkgs.lib.genAttrs [
       "x86_64-linux"
       "aarch64-linux"
@@ -47,9 +51,15 @@
     checks = forTestSystems (
       system: let
         pkgs = nixpkgs.legacyPackages.${system};
-      in {
-        routeros = pkgs.callPackage ./checks/routeros.nix {inherit routnixLib;};
-      }
+      in
+        lib.mapAttrs' (
+          alias: image:
+            lib.nameValuePair "routeros-${alias}" (pkgs.callPackage ./checks/routeros.nix {
+              inherit routnixLib image;
+              name = alias;
+            })
+        )
+        self.packages.${system}.ros-vm-images
     );
   };
 }

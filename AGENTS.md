@@ -28,8 +28,10 @@ lib/render_rsc/          -- per-kind rendering helpers used by render_rsc.nix
 lib/default.nix          -- evalConfig { modules } entry point
 examples/                -- example configs, incl. one that intentionally cycles
 checks/                  -- RouterOS CHR integration check (requires KVM)
-flake.nix                -- packages.<system>.example, .cycle-example,
-                            checks.x86_64-linux.routeros
+images.nix               -- RouterOS CHR images (one per entry in ros_versions.nix)
+ros_versions.nix         -- RouterOS CHR versions/hashes tested against
+flake.nix                -- packages.<system>.example, .cycle-example, .ros-vm-images,
+                            checks.x86_64-linux.routeros-<alias> (one per ros_versions.nix entry)
 ```
 
 ## Comments and option descriptions
@@ -69,10 +71,11 @@ history belong in `DESIGN.md`, not in `.nix` files.
   exercised on purpose, not a bug.
 - Use the shell tool's working-directory option to run commands in this
   repo; don't `cd` into it or pass `-C`.
-- `nix build .#checks.x86_64-linux.routeros -L` boots a RouterOS CHR VM
-  under QEMU, imports the `.rsc` rendered from `examples/basic.nix`, and
-  checks the result over SSH. Requires KVM on the build host and network
-  access to fetch the CHR image.
+- `nix build .#checks.x86_64-linux.routeros-<alias> -L` (alias from
+  `ros_versions.nix`, e.g. `stable-v7`) boots a RouterOS CHR VM under QEMU,
+  imports the `.rsc` rendered from `examples/basic.nix`, and checks the
+  result over SSH. Requires KVM on the build host and network access to
+  fetch the CHR image. `nix flake check` runs it for every version.
 - That check only asserts that the expected entries exist, not their order,
   idempotence, or pruning — so "does it build and does the rendered `.rsc`
   look right" is still the main bar.
