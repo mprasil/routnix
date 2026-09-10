@@ -26,22 +26,19 @@
   # only an `ignore`d entry) -- and records it in `$managed`.
   renderManagedItem = path: find: create: item: let
     query = renderQuery (find item);
-    body = concatStringsSep "\n" [
-      ":local item [${path} find where ${query}]"
-      ''
+    body = ''
+      {
+        :local item [${path} find where ${query}]
         :if ([:len $item] > 1) do={
-          :error ("routnix: find matched more than one entry in ${path}")
-        }''
-      ''
+            :error ("routnix: find matched more than one entry in ${path}")
+        }
         :if ($item = "" || [:find $ignore $item -1] >= 0) do={
-          :set item [${create item}]
-        }''
-      ":set managed ($managed, $item)"
-    ];
-  in ''
-    {
-    ${indent body}
-    }'';
+            :set item [${create item}]
+        }
+        :set managed ($managed, $item)
+      }'';
+  in
+    body;
 
   # Removes existing entries whose id is in neither `$managed` (this
   # run's resolved items) nor `$ignore`.

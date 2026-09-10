@@ -1,37 +1,13 @@
 {lib}: let
-  inherit (lib) concatStringsSep mapAttrsToList imap0;
-  inherit (import ./common.nix {inherit lib;}) renderArgs indent;
-
-  # Like `renderValue`/`renderQuery` (`common.nix`), but also quotes
-  # `int` values -- RouterOS v6 requires this in `where` comparisons,
-  # unlike `add`'s own arguments (still rendered via `renderArgs`).
-  # Scoped to `kind = "ordered"`; `"unordered"`/`"effect"` still use the
-  # unquoted-int `renderQuery` from `common.nix`.
-  renderValueV6 = v:
-    if builtins.isBool v
-    then
-      (
-        if v
-        then "yes"
-        else "no"
-      )
-    else ''"${toString v}"'';
-
-  renderQueryV6 = fields:
-    concatStringsSep " " (
-      mapAttrsToList (k: v:
-        if v == null
-        then "!${k}"
-        else "${k}=${renderValueV6 v}")
-      fields
-    );
+  inherit (lib) concatStringsSep imap0;
+  inherit (import ./common.nix {inherit lib;}) renderQuery renderArgs indent;
 
   # Resolves `ignore` field predicates to ids once, before any item is
   # processed.
   renderIgnoreSetup = ignore:
     concatStringsSep "\n" (
       [":local ignore ({})"]
-      ++ map (fields: ":set ignore ($ignore, [find where ${renderQueryV6 fields}])") ignore
+      ++ map (fields: ":set ignore ($ignore, [find where ${renderQuery fields}])") ignore
     );
 
   # The statement(s) that create declared item `i` and capture its id as
@@ -54,23 +30,21 @@
   # matches nothing (or only an `ignore`d entry) -- and records it in
   # `$managed`.
   renderResolveItem = path: find: i: item: let
-    query = renderQueryV6 (find item);
-    body = concatStringsSep "\n" [
-      ":local item [find where ${query}]"
-      ''
+    query = renderQuery (find item);
+    body = ''
+      {
+        :local item [find where ${query}]
         :if ([:len $item] > 1) do={
           :error ("routnix: find matched more than one entry in ${path}")
-        }''
-      ''
+        }
         :if ($item = "" || [:find $ignore $item -1] >= 0) do={
         ${indent (addStatement i item)}
-        }''
-      ":set managed ($managed, $item)"
-    ];
-  in ''
-    {
-    ${indent body}
-    }'';
+        }
+        :set managed ($managed, $item)
+      }
+    '';
+  in
+    body;
 
   # Fixes up declared order among the resolved ids in `$managed`: forces
   # the first declared item to be the table's first entry, then walks

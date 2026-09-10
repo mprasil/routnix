@@ -16,8 +16,6 @@
         then "yes"
         else "no"
       )
-    else if builtins.isInt v
-    then toString v
     else ''"${toString v}"'';
 
   # Renders an attrset of RouterOS fields into `k=v k=v ...` form.
