@@ -97,10 +97,11 @@ this RouterOS-specific tree is clearly scoped as such, leaving the top
 level free for a possible future device-agnostic layer — see "Scope note"
 above and "High-level modules" below.
 
-`routeros.config` is keyed by **full RouterOS path, including the leading
-slash** (e.g. `"/ip/firewall/filter"`), matching idiomatic RouterOS
-scripting syntax (RouterOS accepts `/`-separated paths as equivalent to the
-more commonly documented space-separated form).
+`routeros.config` is keyed by **full RouterOS path, leading slash then
+space-separated** (e.g. `"/ip firewall filter"`) — the form RouterOS v6
+requires; v7's `/`-separated form (`/ip/firewall/filter`) is a superset
+only it understands, so the space-separated form is what keeps rendered
+`.rsc` scripts working on both.
 
 This is intentionally the *lowest-level, coarsest-grained* primitive: one
 entry per RouterOS path, an ordered list of items, `before`/`after` to
@@ -129,7 +130,7 @@ a meaningful decision rather than something safe to fall back on:
   always removed, e.g.:
 
   ```nix
-  routeros.config."/ip/firewall/filter" = {
+  routeros.config."/ip firewall filter" = {
     kind = "ordered";
     items = [
       { chain = "input"; action = "accept"; protocol = "icmp"; comment = "allow-icmp"; }
@@ -169,7 +170,7 @@ a meaningful decision rather than something safe to fall back on:
   match an existing entry:
 
   ```nix
-  routeros.config."/ip/firewall/address-list" = {
+  routeros.config."/ip firewall address-list" = {
     kind = "unordered";
     items = [ { address = "192.168.1.0/24"; list = "trusted-ips"; } ];
   };
@@ -204,17 +205,17 @@ a meaningful decision rather than something safe to fall back on:
   routnix never created it.
 
 - **`"settings"`** — a non-table, singleton config object (e.g.
-  `/ip/dhcp-server/config`). `settings` (a single `attrsOf itemValueType`,
+  `/ip dhcp-server config`). `settings` (a single `attrsOf itemValueType`,
   not a list) is rendered as one `set` of all declared fields — inherently
   idempotent, no `items`/`find`/`create`/identity/ordering involved.
 
 - **`"effect"`** — items realized via one or more RouterOS commands that
-  aren't a plain `add` of the item's own fields, e.g. `/user/ssh-keys`,
+  aren't a plain `add` of the item's own fields, e.g. `/user ssh-keys`,
   where creating a key requires writing a file first and then running
   `import`:
 
   ```nix
-  routeros.config."/user/ssh-keys" = {
+  routeros.config."/user ssh-keys" = {
     kind = "effect";
     find = item: { user = item.user; };
     create = item: ''
@@ -462,7 +463,7 @@ reconstruct the reasoning from scratch, not as a decision.
 ### Block-level ordering
 
 `routeros.config` currently orders whole paths against each other. Real configs
-(the motivating example being `/ip/firewall/filter`) often need several
+(the motivating example being `/ip firewall filter`) often need several
 independent, named chunks contributing to the *same* path, each ordered
 relative to each other (e.g. baseline accept rules, then a rule that
 depends on an address-list existing, then a final catch-all drop) — finer
@@ -534,7 +535,7 @@ is what's still open per kind.
   have drifted from the declared item, so this isn't yet full
   find-then-upsert.
 - **`"settings"`** (non-table, singleton config objects — e.g.
-  `/ip/dhcp-server/config`) — **settled and implemented**: a single `set`
+  `/ip dhcp-server config`) — **settled and implemented**: a single `set`
   of the `settings` attrset, no identity/ownership needed. Merging from
   multiple contributing blocks (once blocks exist, see "Block-level
   ordering" above) via plain attrset union is still open, but only because

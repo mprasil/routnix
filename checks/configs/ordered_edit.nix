@@ -5,7 +5,7 @@
 # subtest. "routnix-test-ordered-ssh" (tcp/22) is left untouched so the
 # test's own SSH access survives the apply.
 {
-  routeros.config."/ip/firewall/filter" = {
+  routeros.config."/ip firewall filter" = {
     kind = "ordered";
     items = [
       {

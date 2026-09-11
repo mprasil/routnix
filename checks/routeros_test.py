@@ -145,24 +145,24 @@ def import_config(ros: RouterOsMachine, rsc_dir: Path, config_name: str) -> str:
 # raises AssertionError (or lets one propagate) on failure.
 # ----------------------------------------------------------------------------
 
-FILTER = "/ip/firewall/filter"
-ADDRESS_LIST = "/ip/firewall/address-list"
+FILTER = "/ip firewall filter"
+ADDRESS_LIST = "/ip firewall address-list"
 
 
 def test_ordered_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
     """kind = "ordered": missing items are added, already placed in
     declared order."""
     import_config(ros, rsc_dir, "ordered_basic")
-    out = ros.ssh_cmd(f"{FILTER}/print")
+    out = ros.ssh_cmd(f"{FILTER} print")
     assert_order(
         out,
         "routnix-test-ordered-icmp",
         "routnix-test-ordered-ssh",
         "routnix-test-ordered-web",
         "routnix-test-ordered-drop",
-        context=f"{FILTER}/print",
+        context=f"{FILTER} print",
     )
-    assert_contains(out, "dst-port=8080", context=f"{FILTER}/print")
+    assert_contains(out, "dst-port=8080", context=f"{FILTER} print")
     # kind = "ordered" always prunes: only our 4 declared items should
     # remain, regardless of whatever else was in the table before.
     assert_eq(count_only(ros, FILTER), 4, context=f"{FILTER} count after ordered_basic")
@@ -181,25 +181,25 @@ def test_ordered_reorder(ros: RouterOsMachine, rsc_dir: Path) -> None:
         f'{FILTER} move [find where comment="routnix-test-ordered-web"] '
         f'destination=[find where comment="routnix-test-ordered-icmp"]'
     )
-    drifted = ros.ssh_cmd(f"{FILTER}/print")
+    drifted = ros.ssh_cmd(f"{FILTER} print")
     assert_order(
         drifted,
         "routnix-test-ordered-web",
         "routnix-test-ordered-icmp",
         "routnix-test-ordered-ssh",
-        context=f"{FILTER}/print (after manual drift, sanity check)",
+        context=f"{FILTER} print (after manual drift, sanity check)",
     )
 
     import_config(ros, rsc_dir, "ordered_basic")
 
-    restored = ros.ssh_cmd(f"{FILTER}/print")
+    restored = ros.ssh_cmd(f"{FILTER} print")
     assert_order(
         restored,
         "routnix-test-ordered-icmp",
         "routnix-test-ordered-ssh",
         "routnix-test-ordered-web",
         "routnix-test-ordered-drop",
-        context=f"{FILTER}/print (after reapply, order restored)",
+        context=f"{FILTER} print (after reapply, order restored)",
     )
     assert_eq(count_only(ros, FILTER), 4, context=f"{FILTER} count after reorder")
 
@@ -209,9 +209,9 @@ def test_ordered_edit(ros: RouterOsMachine, rsc_dir: Path) -> None:
     prune-old (identity is the item's whole field set), not an
     in-place `set`."""
     import_config(ros, rsc_dir, "ordered_edit")
-    out = ros.ssh_cmd(f"{FILTER}/print")
-    assert_contains(out, "dst-port=9090", context=f"{FILTER}/print after edit")
-    assert_not_contains(out, "dst-port=8080", context=f"{FILTER}/print after edit (stale entry pruned)")
+    out = ros.ssh_cmd(f"{FILTER} print")
+    assert_contains(out, "dst-port=9090", context=f"{FILTER} print after edit")
+    assert_not_contains(out, "dst-port=8080", context=f"{FILTER} print after edit (stale entry pruned)")
     assert_eq(count_only(ros, FILTER), 4, context=f"{FILTER} count after edit (no duplicate)")
 
 
@@ -224,15 +224,15 @@ def test_ordered_ignore(ros: RouterOsMachine, rsc_dir: Path) -> None:
 
     import_config(ros, rsc_dir, "ordered_ignore")
 
-    out = ros.ssh_cmd(f"{FILTER}/print")
-    assert_contains(out, "routnix-test-ordered-icmp", "routnix-test-ordered-keep", context=f"{FILTER}/print after ignore")
+    out = ros.ssh_cmd(f"{FILTER} print")
+    assert_contains(out, "routnix-test-ordered-icmp", "routnix-test-ordered-keep", context=f"{FILTER} print after ignore")
     assert_not_contains(
         out,
         "routnix-test-ordered-manual",
         "routnix-test-ordered-ssh",
         "routnix-test-ordered-web",
         "routnix-test-ordered-drop",
-        context=f"{FILTER}/print after ignore (unignored/undeclared entries pruned)",
+        context=f"{FILTER} print after ignore (unignored/undeclared entries pruned)",
     )
     assert_eq(count_only(ros, FILTER), 2, context=f"{FILTER} count after ignore")
 
@@ -243,8 +243,8 @@ def test_ordered_ignore(ros: RouterOsMachine, rsc_dir: Path) -> None:
 def test_unordered_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
     """kind = "unordered": a missing item is added."""
     import_config(ros, rsc_dir, "unordered_basic")
-    out = ros.ssh_cmd(f'{ADDRESS_LIST}/print where list="routnix-test-basic"')
-    assert_contains(out, "10.10.10.10", context=f"{ADDRESS_LIST}/print (routnix-test-basic)")
+    out = ros.ssh_cmd(f'{ADDRESS_LIST} print where list="routnix-test-basic"')
+    assert_contains(out, "10.10.10.10", context=f"{ADDRESS_LIST} print (routnix-test-basic)")
     assert_eq(count_only(ros, ADDRESS_LIST, 'list="routnix-test-basic"'), 1)
 
 
@@ -260,8 +260,8 @@ def test_unordered_find_fields(ros: RouterOsMachine, rsc_dir: Path) -> None:
     as `k=v`) from one that doesn't (rendered as `!k`) -- they must not
     collapse into a single entry."""
     import_config(ros, rsc_dir, "unordered_find_fields")
-    out = ros.ssh_cmd(f'{ADDRESS_LIST}/print where list="routnix-test-fields"')
-    assert_contains(out, "10.10.10.30", "10.10.10.31", context=f"{ADDRESS_LIST}/print (routnix-test-fields)")
+    out = ros.ssh_cmd(f'{ADDRESS_LIST} print where list="routnix-test-fields"')
+    assert_contains(out, "10.10.10.30", "10.10.10.31", context=f"{ADDRESS_LIST} print (routnix-test-fields)")
     assert_eq(count_only(ros, ADDRESS_LIST, 'list="routnix-test-fields"'), 2)
     ros.ssh_cmd(f'{ADDRESS_LIST} remove [find where list="routnix-test-fields"]')
 
@@ -280,9 +280,9 @@ def test_unordered_prune(ros: RouterOsMachine, rsc_dir: Path) -> None:
 
     import_config(ros, rsc_dir, "unordered_prune")
 
-    out = ros.ssh_cmd(f'{ADDRESS_LIST}/print where list="routnix-test-prune"')
-    assert_contains(out, "10.10.10.20", "routnix-test-prune-keep", context=f"{ADDRESS_LIST}/print after prune")
-    assert_not_contains(out, "routnix-test-prune-manual", context=f"{ADDRESS_LIST}/print after prune")
+    out = ros.ssh_cmd(f'{ADDRESS_LIST} print where list="routnix-test-prune"')
+    assert_contains(out, "10.10.10.20", "routnix-test-prune-keep", context=f"{ADDRESS_LIST} print after prune")
+    assert_not_contains(out, "routnix-test-prune-manual", context=f"{ADDRESS_LIST} print after prune")
     assert_eq(count_only(ros, ADDRESS_LIST, 'list="routnix-test-prune"'), 2)
 
     ros.ssh_cmd(f'{ADDRESS_LIST} remove [find where list="routnix-test-prune"]')
@@ -291,15 +291,15 @@ def test_unordered_prune(ros: RouterOsMachine, rsc_dir: Path) -> None:
 def test_settings_apply(ros: RouterOsMachine, rsc_dir: Path) -> None:
     """kind = "settings": a single `set` of the declared fields."""
     import_config(ros, rsc_dir, "settings_basic")
-    out = ros.ssh_cmd("/system/identity/print")
-    assert_contains(out, "routnix-test-router", context="/system/identity/print")
+    out = ros.ssh_cmd("/system identity print")
+    assert_contains(out, "routnix-test-router", context="/system identity print")
 
 
 def test_settings_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
     """Reapplying a `set` of the same fields is a no-op, not an error."""
     import_config(ros, rsc_dir, "settings_basic")
-    out = ros.ssh_cmd("/system/identity/print")
-    assert_contains(out, "routnix-test-router", context="/system/identity/print (reapply)")
+    out = ros.ssh_cmd("/system identity print")
+    assert_contains(out, "routnix-test-router", context="/system identity print (reapply)")
 
 
 def test_effect_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
@@ -307,16 +307,16 @@ def test_effect_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
     `add`), guarded by `find`; a line targeting a different absolute
     path doesn't permanently change the entry's own path context."""
     import_config(ros, rsc_dir, "effect_basic")
-    out = ros.ssh_cmd(f'{ADDRESS_LIST}/print where list="routnix-test-effect"')
+    out = ros.ssh_cmd(f'{ADDRESS_LIST} print where list="routnix-test-effect"')
     assert_contains(
         out,
         "10.10.10.40", "routnix-test-effect-1",
         "10.10.10.41", "routnix-test-effect-2",
-        context=f"{ADDRESS_LIST}/print (routnix-test-effect)",
+        context=f"{ADDRESS_LIST} print (routnix-test-effect)",
     )
     assert_eq(count_only(ros, ADDRESS_LIST, 'list="routnix-test-effect"'), 2)
-    note = ros.ssh_cmd("/system/note/print")
-    assert_contains(note, "routnix-test-effect-note-2", context="/system/note/print (last item's side effect)")
+    note = ros.ssh_cmd("/system note print")
+    assert_contains(note, "routnix-test-effect-note-2", context="/system note print (last item's side effect)")
 
 
 def test_effect_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
@@ -324,11 +324,11 @@ def test_effect_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
     items `find` already matches."""
     import_config(ros, rsc_dir, "effect_basic")
     assert_eq(count_only(ros, ADDRESS_LIST, 'list="routnix-test-effect"'), 2)
-    note = ros.ssh_cmd("/system/note/print")
-    assert_contains(note, "routnix-test-effect-note-2", context="/system/note/print (unchanged on reapply)")
+    note = ros.ssh_cmd("/system note print")
+    assert_contains(note, "routnix-test-effect-note-2", context="/system note print (unchanged on reapply)")
 
     ros.ssh_cmd(f'{ADDRESS_LIST} remove [find where list="routnix-test-effect"]')
-    ros.ssh_cmd('/system/note set note=""')
+    ros.ssh_cmd('/system note set note=""')
 
 
 # Ordering matters within the "ordered_*" group -- each builds on the

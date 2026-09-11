@@ -4,7 +4,7 @@
 # they must be treated as two distinct entries rather than colliding
 # into one -- see routeros_test.py's "unordered_find_fields" subtest.
 {
-  routeros.config."/ip/firewall/address-list" = {
+  routeros.config."/ip firewall address-list" = {
     kind = "unordered";
     items = [
       {

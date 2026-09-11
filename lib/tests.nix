@@ -102,12 +102,12 @@
 
     testSettingsRendersSingleSet = {
       expr = rsc {
-        routeros.config."/system/identity" = {
+        routeros.config."/system identity" = {
           kind = "settings";
           settings = {name = "r1";};
         };
       };
-      expected = "/system/identity\nset name=\"r1\"\n";
+      expected = "/system identity\nset name=\"r1\"\n";
     };
 
     testPruneOnSettingsThrows = {

@@ -1,7 +1,7 @@
 {
-  routeros.config."/ip/firewall/address-list" = {
+  routeros.config."/ip firewall address-list" = {
     kind = "unordered";
-    after = ["/ip/firewall/filter"];
+    after = ["/ip firewall filter"];
     find = item: {address = item.address;};
     items = [
       {
@@ -11,9 +11,9 @@
     ];
   };
 
-  routeros.config."/ip/firewall/filter" = {
+  routeros.config."/ip firewall filter" = {
     kind = "ordered";
-    after = ["/ip/firewall/address-list"];
+    after = ["/ip firewall address-list"];
     find = item: {comment = item.comment;};
     items = [
       {

@@ -111,7 +111,7 @@ class RouterOsMachine(QemuMachine):
             proc = subprocess.run(
                 [
                     *self._ssh_base(connect_timeout=5),
-                    "/system/identity/print",
+                    "/system identity print",
                 ],
                 capture_output=True,
                 timeout=30,

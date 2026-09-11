@@ -5,7 +5,7 @@
 # "routnix-test-prune-manual"-commented one (not matched) before
 # applying this, and expects only the latter to be swept.
 {
-  routeros.config."/ip/firewall/address-list" = {
+  routeros.config."/ip firewall address-list" = {
     kind = "unordered";
     prune = true;
     ignore = [{comment = "routnix-test-prune-keep";}];

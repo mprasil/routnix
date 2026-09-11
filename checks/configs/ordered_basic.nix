@@ -1,5 +1,5 @@
 # kind = "ordered" happy path: four declared items in
-# /ip/firewall/filter, used by routeros_test.py's "ordered_*" subtests
+# /ip firewall filter, used by routeros_test.py's "ordered_*" subtests
 # to check add-in-order placement, idempotence on reapply,
 # drift-restoration, and field-edit convergence. Comments are prefixed
 # distinctively so this path's pre-existing/default entries (if any)
@@ -11,7 +11,7 @@
 # VM depends on it staying in place across every "ordered_*" subtest,
 # since the last item drops all otherwise-unmatched input traffic.
 {
-  routeros.config."/ip/firewall/filter" = {
+  routeros.config."/ip firewall filter" = {
     kind = "ordered";
     items = [
       {

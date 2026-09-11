@@ -1,5 +1,5 @@
 {
-  routeros.config."/ip/firewall/address-list" = {
+  routeros.config."/ip firewall address-list" = {
     kind = "unordered";
     prune = true;
     ignore = [
@@ -15,9 +15,9 @@
     ];
   };
 
-  routeros.config."/ip/firewall/filter" = {
+  routeros.config."/ip firewall filter" = {
     kind = "ordered";
-    after = ["/ip/firewall/address-list"];
+    after = ["/ip firewall address-list"];
     items = [
       {
         chain = "input";

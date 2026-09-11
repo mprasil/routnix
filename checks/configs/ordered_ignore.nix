@@ -5,7 +5,7 @@
 # one (not matched) before applying this, and expects the former to
 # survive the prune sweep and the latter to be removed.
 {
-  routeros.config."/ip/firewall/filter" = {
+  routeros.config."/ip firewall filter" = {
     kind = "ordered";
     ignore = [{comment = "routnix-test-ordered-keep";}];
     items = [

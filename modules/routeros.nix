@@ -33,9 +33,9 @@
           - `"unordered"` (e.g. routes, address-lists, VLANs): only
             presence matters, so an item is `add`-ed only if it doesn't
             already match an existing entry, by its own declared fields.
-          - `"settings"` (e.g. `/ip/dhcp-server/config`): `settings`
+          - `"settings"` (e.g. `/ip dhcp-server config`): `settings`
             fields are applied as a single `set`.
-          - `"effect"` (e.g. `/user/ssh-keys`): like `"unordered"`, but
+          - `"effect"` (e.g. `/user ssh-keys`): like `"unordered"`, but
             `create` runs arbitrary commands instead of a plain `add`.
         '';
       };
@@ -45,7 +45,7 @@
         default = [];
         description = ''
           Paths of other `routeros.config` entries that must be configured
-          *after* this one, e.g. `[ "/ip/firewall/filter" ]`.
+          *after* this one, e.g. `[ "/ip firewall filter" ]`.
         '';
       };
 
@@ -133,11 +133,12 @@ in {
     type = types.attrsOf (types.submodule entryModule);
     default = {};
     description = ''
-      RouterOS configuration, keyed by full RouterOS path (e.g.
-      `"/ip/firewall/filter"`). This is the low-level, path-granularity,
-      RouterOS-specific building block of routnix; ordering between
-      different paths is controlled via `before`/`after`, and how entries
-      are managed is controlled via `kind`.
+      RouterOS configuration, keyed by full RouterOS path, space-separated
+      after the leading slash (e.g. `"/ip firewall filter"`). This is the
+      low-level, path-granularity, RouterOS-specific building block of
+      routnix; ordering between different paths is controlled via
+      `before`/`after`, and how entries are managed is controlled via
+      `kind`.
     '';
   };
 }
