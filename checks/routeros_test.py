@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Integration test: apply a routnix-generated .rsc to a RouterOS CHR VM and
-verify the expected configuration is present.
+"""Integration test: apply routnix-generated .rsc snippets to a RouterOS CHR VM
+and verify the resulting router state, one focused subtest per feature.
 
-Exit codes: 0 = pass, non-zero = fail.
+Each subtest below corresponds to a config in checks/configs/ (built and handed
+to us as "<name>.rsc" in --rsc-dir by checks/routeros.nix) plus, where needed,
+some manual setup/cleanup over SSH. Subtests run in sequence against a single
+booted VM. Ordering matters for a few of them - and most try to clean up
+whatever they touched afterward, though this is somewhat optimistic best effort
+only. We try to run all subtests even if an earlier one fails.
+
+Exit codes: 0 = pass, non-zero = at least one subtest failed.
 
 """
 
@@ -12,7 +19,9 @@ import argparse
 import shutil
 import sys
 import tempfile
+import traceback
 from pathlib import Path
+from typing import Callable
 
 from routeros_machine import RouterOsMachine
 from test_driver.logger import TerminalLogger
@@ -21,7 +30,9 @@ from test_driver.logger import TerminalLogger
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--image",    required=True, help="Path to the CHR .img file")
-    p.add_argument("--rsc",      required=True, help="Path to the .rsc file to apply")
+    p.add_argument("--rsc-dir",  required=True,
+                   help="Directory of rendered '<config-name>.rsc' files "
+                        "(one per checks/configs/*.nix)")
     p.add_argument("--qemu",     required=True, help="Path to qemu-system-x86_64")
     p.add_argument("--ssh",      required=True, help="Path to ssh binary")
     p.add_argument("--scp",      required=True, help="Path to scp binary")
@@ -32,15 +43,312 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+# --------------------------------------------------------------------------
+# Assertion helpers
+# --------------------------------------------------------------------------
+
 def assert_contains(output: str, *needles: str, context: str = "") -> None:
     """Assert every needle appears in *output*; raise on the first miss."""
     for needle in needles:
         if needle not in output:
             raise AssertionError(
-                f"Expected {needle!r} in output"
+                f"expected {needle!r} in output"
                 + (f" ({context})" if context else "")
                 + f"\nActual output:\n{output}"
             )
+
+
+def assert_not_contains(output: str, *needles: str, context: str = "") -> None:
+    """Assert none of the needles appear in *output*."""
+    for needle in needles:
+        if needle in output:
+            raise AssertionError(
+                f"expected {needle!r} NOT in output"
+                + (f" ({context})" if context else "")
+                + f"\nActual output:\n{output}"
+            )
+
+
+def assert_order(output: str, *needles: str, context: str = "") -> None:
+    """Assert every needle appears in *output*, in the given order."""
+    positions = []
+    for needle in needles:
+        idx = output.find(needle)
+        if idx < 0:
+            raise AssertionError(
+                f"expected {needle!r} in output"
+                + (f" ({context})" if context else "")
+                + f"\nActual output:\n{output}"
+            )
+        positions.append(idx)
+    if positions != sorted(positions):
+        raise AssertionError(
+            f"expected {needles!r} in that order"
+            + (f" ({context})" if context else "")
+            + f", but found them at positions {positions}\nActual output:\n{output}"
+        )
+
+
+def assert_eq(actual, expected, *, context: str = "") -> None:
+    if actual != expected:
+        raise AssertionError(
+            f"expected {expected!r}, got {actual!r}"
+            + (f" ({context})" if context else "")
+        )
+
+
+# RouterOS's own `:error` calls (e.g. routnix's own ambiguous-`find`
+# guards) and outright command failures don't reliably turn into a
+# non-zero `/import` exit code, so `/import`'s own textual output has to
+# be inspected too. This is a best-effort substring check, not a full
+# parse of RouterOS's console grammar.
+IMPORT_ERROR_MARKERS = ("error", "failure", "bad command", "syntax error")
+
+
+def assert_import_ok(output: str, *, context: str = "") -> None:
+    lowered = output.lower()
+    for marker in IMPORT_ERROR_MARKERS:
+        if marker in lowered:
+            raise AssertionError(
+                f"/import output looks like it failed (contains {marker!r})"
+                + (f" ({context})" if context else "")
+                + f"\nActual output:\n{output}"
+            )
+
+
+def count_only(ros: RouterOsMachine, path: str, where: str = "") -> int:
+    """Run `<path> print count-only [where ...]` and parse the result."""
+    cmd = f"{path} print count-only"
+    if where:
+        cmd += f" where {where}"
+    out = ros.ssh_cmd(cmd).strip()
+    try:
+        return int(out)
+    except ValueError as exc:
+        raise AssertionError(f"expected an integer from {cmd!r}, got {out!r}") from exc
+
+
+def import_config(ros: RouterOsMachine, rsc_dir: Path, config_name: str) -> str:
+    """Upload and `/import` checks/configs/<config_name>.nix's rendered .rsc."""
+    local = rsc_dir / f"{config_name}.rsc"
+    remote = f"routnix-{config_name}.rsc"
+    ros.scp_to_ros(local, remote)
+    out = ros.ssh_cmd(f"/import {remote}", timeout=60)
+    assert_import_ok(out, context=f"importing {config_name}.rsc")
+    return out
+
+
+# ----------------------------------------------------------------------------
+# Subtests
+#
+# Each takes the running machine and the directory of rendered .rsc files, and
+# raises AssertionError (or lets one propagate) on failure.
+# ----------------------------------------------------------------------------
+
+FILTER = "/ip/firewall/filter"
+ADDRESS_LIST = "/ip/firewall/address-list"
+
+
+def test_ordered_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """kind = "ordered": missing items are added, already placed in
+    declared order."""
+    import_config(ros, rsc_dir, "ordered_basic")
+    out = ros.ssh_cmd(f"{FILTER}/print")
+    assert_order(
+        out,
+        "routnix-test-ordered-icmp",
+        "routnix-test-ordered-ssh",
+        "routnix-test-ordered-web",
+        "routnix-test-ordered-drop",
+        context=f"{FILTER}/print",
+    )
+    assert_contains(out, "dst-port=8080", context=f"{FILTER}/print")
+    # kind = "ordered" always prunes: only our 4 declared items should
+    # remain, regardless of whatever else was in the table before.
+    assert_eq(count_only(ros, FILTER), 4, context=f"{FILTER} count after ordered_basic")
+
+
+def test_ordered_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Reapplying the same config must not duplicate entries."""
+    import_config(ros, rsc_dir, "ordered_basic")
+    assert_eq(count_only(ros, FILTER), 4, context=f"{FILTER} count after reapplying ordered_basic")
+
+
+def test_ordered_reorder(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """An entry moved out of place since the last apply (by something
+    other than routnix) is moved back into its declared position."""
+    ros.ssh_cmd(
+        f'{FILTER} move [find where comment="routnix-test-ordered-web"] '
+        f'destination=[find where comment="routnix-test-ordered-icmp"]'
+    )
+    drifted = ros.ssh_cmd(f"{FILTER}/print")
+    assert_order(
+        drifted,
+        "routnix-test-ordered-web",
+        "routnix-test-ordered-icmp",
+        "routnix-test-ordered-ssh",
+        context=f"{FILTER}/print (after manual drift, sanity check)",
+    )
+
+    import_config(ros, rsc_dir, "ordered_basic")
+
+    restored = ros.ssh_cmd(f"{FILTER}/print")
+    assert_order(
+        restored,
+        "routnix-test-ordered-icmp",
+        "routnix-test-ordered-ssh",
+        "routnix-test-ordered-web",
+        "routnix-test-ordered-drop",
+        context=f"{FILTER}/print (after reapply, order restored)",
+    )
+    assert_eq(count_only(ros, FILTER), 4, context=f"{FILTER} count after reorder")
+
+
+def test_ordered_edit(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Editing a declared item's fields converges via add-new +
+    prune-old (identity is the item's whole field set), not an
+    in-place `set`."""
+    import_config(ros, rsc_dir, "ordered_edit")
+    out = ros.ssh_cmd(f"{FILTER}/print")
+    assert_contains(out, "dst-port=9090", context=f"{FILTER}/print after edit")
+    assert_not_contains(out, "dst-port=8080", context=f"{FILTER}/print after edit (stale entry pruned)")
+    assert_eq(count_only(ros, FILTER), 4, context=f"{FILTER} count after edit (no duplicate)")
+
+
+def test_ordered_ignore(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """`ignore` protects hand-managed entries from the mandatory prune
+    sweep; anything else not declared is still removed -- including
+    whatever ordered_edit.nix left behind."""
+    ros.ssh_cmd(f'{FILTER} add chain=input action=accept comment="routnix-test-ordered-keep"')
+    ros.ssh_cmd(f'{FILTER} add chain=input action=accept comment="routnix-test-ordered-manual"')
+
+    import_config(ros, rsc_dir, "ordered_ignore")
+
+    out = ros.ssh_cmd(f"{FILTER}/print")
+    assert_contains(out, "routnix-test-ordered-icmp", "routnix-test-ordered-keep", context=f"{FILTER}/print after ignore")
+    assert_not_contains(
+        out,
+        "routnix-test-ordered-manual",
+        "routnix-test-ordered-ssh",
+        "routnix-test-ordered-web",
+        "routnix-test-ordered-drop",
+        context=f"{FILTER}/print after ignore (unignored/undeclared entries pruned)",
+    )
+    assert_eq(count_only(ros, FILTER), 2, context=f"{FILTER} count after ignore")
+
+    # Leave the path clean for anything that might run after this.
+    ros.ssh_cmd(f"{FILTER} remove [find]")
+
+
+def test_unordered_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """kind = "unordered": a missing item is added."""
+    import_config(ros, rsc_dir, "unordered_basic")
+    out = ros.ssh_cmd(f'{ADDRESS_LIST}/print where list="routnix-test-basic"')
+    assert_contains(out, "10.10.10.10", context=f"{ADDRESS_LIST}/print (routnix-test-basic)")
+    assert_eq(count_only(ros, ADDRESS_LIST, 'list="routnix-test-basic"'), 1)
+
+
+def test_unordered_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Reapplying must not duplicate the entry."""
+    import_config(ros, rsc_dir, "unordered_basic")
+    assert_eq(count_only(ros, ADDRESS_LIST, 'list="routnix-test-basic"'), 1)
+    ros.ssh_cmd(f'{ADDRESS_LIST} remove [find where list="routnix-test-basic"]')
+
+
+def test_unordered_find_fields(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Derived `find` distinguishes an item that sets a field (rendered
+    as `k=v`) from one that doesn't (rendered as `!k`) -- they must not
+    collapse into a single entry."""
+    import_config(ros, rsc_dir, "unordered_find_fields")
+    out = ros.ssh_cmd(f'{ADDRESS_LIST}/print where list="routnix-test-fields"')
+    assert_contains(out, "10.10.10.30", "10.10.10.31", context=f"{ADDRESS_LIST}/print (routnix-test-fields)")
+    assert_eq(count_only(ros, ADDRESS_LIST, 'list="routnix-test-fields"'), 2)
+    ros.ssh_cmd(f'{ADDRESS_LIST} remove [find where list="routnix-test-fields"]')
+
+
+def test_unordered_prune(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """`prune = true` removes entries not covered by a current item's
+    `find` or by `ignore`; an `ignore`d entry survives."""
+    ros.ssh_cmd(
+        f'{ADDRESS_LIST} add address=10.10.10.21 list="routnix-test-prune" '
+        f'comment="routnix-test-prune-keep"'
+    )
+    ros.ssh_cmd(
+        f'{ADDRESS_LIST} add address=10.10.10.22 list="routnix-test-prune" '
+        f'comment="routnix-test-prune-manual"'
+    )
+
+    import_config(ros, rsc_dir, "unordered_prune")
+
+    out = ros.ssh_cmd(f'{ADDRESS_LIST}/print where list="routnix-test-prune"')
+    assert_contains(out, "10.10.10.20", "routnix-test-prune-keep", context=f"{ADDRESS_LIST}/print after prune")
+    assert_not_contains(out, "routnix-test-prune-manual", context=f"{ADDRESS_LIST}/print after prune")
+    assert_eq(count_only(ros, ADDRESS_LIST, 'list="routnix-test-prune"'), 2)
+
+    ros.ssh_cmd(f'{ADDRESS_LIST} remove [find where list="routnix-test-prune"]')
+
+
+def test_settings_apply(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """kind = "settings": a single `set` of the declared fields."""
+    import_config(ros, rsc_dir, "settings_basic")
+    out = ros.ssh_cmd("/system/identity/print")
+    assert_contains(out, "routnix-test-router", context="/system/identity/print")
+
+
+def test_settings_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Reapplying a `set` of the same fields is a no-op, not an error."""
+    import_config(ros, rsc_dir, "settings_basic")
+    out = ros.ssh_cmd("/system/identity/print")
+    assert_contains(out, "routnix-test-router", context="/system/identity/print (reapply)")
+
+
+def test_effect_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """kind = "effect": `create` runs custom .rsc text (not a plain
+    `add`), guarded by `find`; a line targeting a different absolute
+    path doesn't permanently change the entry's own path context."""
+    import_config(ros, rsc_dir, "effect_basic")
+    out = ros.ssh_cmd(f'{ADDRESS_LIST}/print where list="routnix-test-effect"')
+    assert_contains(
+        out,
+        "10.10.10.40", "routnix-test-effect-1",
+        "10.10.10.41", "routnix-test-effect-2",
+        context=f"{ADDRESS_LIST}/print (routnix-test-effect)",
+    )
+    assert_eq(count_only(ros, ADDRESS_LIST, 'list="routnix-test-effect"'), 2)
+    note = ros.ssh_cmd("/system/note/print")
+    assert_contains(note, "routnix-test-effect-note-2", context="/system/note/print (last item's side effect)")
+
+
+def test_effect_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Reapplying must not rerun `create` (or its side effects) for
+    items `find` already matches."""
+    import_config(ros, rsc_dir, "effect_basic")
+    assert_eq(count_only(ros, ADDRESS_LIST, 'list="routnix-test-effect"'), 2)
+    note = ros.ssh_cmd("/system/note/print")
+    assert_contains(note, "routnix-test-effect-note-2", context="/system/note/print (unchanged on reapply)")
+
+    ros.ssh_cmd(f'{ADDRESS_LIST} remove [find where list="routnix-test-effect"]')
+    ros.ssh_cmd('/system/note set note=""')
+
+
+# Ordering matters within the "ordered_*" group -- each builds on the
+# router state the previous one left behind (see their docstrings).
+# Everything else is independent and self-cleaning.
+SUBTESTS: list[tuple[str, Callable[[RouterOsMachine, Path], None]]] = [
+    ("ordered_add", test_ordered_add),
+    ("ordered_idempotent", test_ordered_idempotent),
+    ("ordered_reorder", test_ordered_reorder),
+    ("ordered_edit", test_ordered_edit),
+    ("ordered_ignore", test_ordered_ignore),
+    ("unordered_add", test_unordered_add),
+    ("unordered_idempotent", test_unordered_idempotent),
+    ("unordered_find_fields", test_unordered_find_fields),
+    ("unordered_prune", test_unordered_prune),
+    ("settings_apply", test_settings_apply),
+    ("settings_idempotent", test_settings_idempotent),
+    ("effect_add", test_effect_add),
+    ("effect_idempotent", test_effect_idempotent),
+]
 
 
 def main() -> None:
@@ -50,6 +358,7 @@ def main() -> None:
         tmp_dir = Path(_tmp)
         out_dir = Path(args.out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
+        rsc_dir = Path(args.rsc_dir)
 
         ros = RouterOsMachine(
             qemu_bin=args.qemu,
@@ -63,70 +372,58 @@ def main() -> None:
             logger=TerminalLogger(),
         )
 
-        failure: Exception | None = None
+        log = ros.logger
+        boot_failure: Exception | None = None
+        results: list[tuple[str, Exception | None]] = []
+
         try:
-            _run_test(ros, args)
-        except Exception as exc:
-            failure = exc
+            with log.nested("boot RouterOS CHR"):
+                ros.start()
+            with log.nested("wait for SSH"):
+                ros.wait_for_ssh()
+
+            for subtest_name, subtest_fn in SUBTESTS:
+                with log.nested(f"subtest: {subtest_name}"):
+                    try:
+                        subtest_fn(ros, rsc_dir)
+                    except Exception as exc:  # noqa: BLE001 -- collected, not swallowed
+                        print(f"FAIL: {subtest_name}: {exc}", file=sys.stderr)
+                        traceback.print_exc()
+                        results.append((subtest_name, exc))
+                    else:
+                        print(f"PASS: {subtest_name}")
+                        results.append((subtest_name, None))
+        except Exception as exc:  # boot/SSH-level failure: no subtests could run
+            boot_failure = exc
         finally:
             # release() before reading the console log, so the serial
             # thread has been joined and the log is fully populated.
             ros.release()
 
-        if failure is not None:
+        failed = [(n, e) for n, e in results if e is not None]
+
+        print("\n=== routnix integration test summary ===")
+        for subtest_name, _ in SUBTESTS:
+            outcome = next((e for n, e in results if n == subtest_name), "SKIPPED")
+            status = "PASS" if outcome is None else ("SKIPPED" if outcome == "SKIPPED" else "FAIL")
+            print(f"  [{status}] {subtest_name}")
+        print("=========================================\n")
+
+        if boot_failure is not None or failed:
             print("\n=== RouterOS console log ===", file=sys.stderr)
             print(ros.get_console_log(), file=sys.stderr)
             print("=== end console log ===\n", file=sys.stderr)
-            raise SystemExit(f"FAIL: {failure}") from failure
+            if boot_failure is not None:
+                raise SystemExit(f"FAIL: could not boot/reach RouterOS: {boot_failure}") from boot_failure
+            raise SystemExit(
+                f"FAIL: {len(failed)}/{len(SUBTESTS)} subtest(s) failed: "
+                + ", ".join(n for n, _ in failed)
+            )
 
-        # Only reached on success. Leave the console log and applied .rsc
-        # behind so a passing build has something inspectable.
+        # Only reached on full success. Leave the console log behind so a
+        # passing build has something inspectable.
         (out_dir / "console.log").write_text(ros.get_console_log())
-        shutil.copy(args.rsc, out_dir / "routnix-test.rsc")
-
-
-def _run_test(ros: RouterOsMachine, args: argparse.Namespace) -> None:
-    log = ros.logger
-
-    with log.nested("boot RouterOS CHR"):
-        ros.start()
-
-    with log.nested("wait for SSH"):
-        ros.wait_for_ssh()
-
-    # Upload the .rsc file ----------------------------------------------
-    rsc_remote = "routnix-test.rsc"
-    with log.nested(f"upload {args.rsc}"):
-        ros.scp_to_ros(args.rsc, rsc_remote)
-
-    # Import the .rsc ----------------------------------------------------
-    with log.nested("import .rsc"):
-        import_out = ros.ssh_cmd(f"/import {rsc_remote}", timeout=60)
-        print(f"import output: {import_out}")
-
-    # Verify firewall filter rules ---------------------------------------
-    with log.nested("verify /ip/firewall/filter"):
-        filter_out = ros.ssh_cmd("/ip/firewall/filter/print")
-        assert_contains(
-            filter_out,
-            "allow-icmp",
-            "allow-established",
-            "allow-ssh-trusted",
-            "drop-rest",
-            context="/ip/firewall/filter/print",
-        )
-
-    # Verify address-list entries ----------------------------------------
-    with log.nested("verify /ip/firewall/address-list"):
-        alist_out = ros.ssh_cmd("/ip/firewall/address-list/print")
-        assert_contains(
-            alist_out,
-            "trusted-ips",
-            "192.168.1.0/24",
-            context="/ip/firewall/address-list/print",
-        )
-
-    print("PASS: all assertions satisfied")
+        shutil.copytree(rsc_dir, out_dir / "routnix-test-configs")
 
 
 if __name__ == "__main__":

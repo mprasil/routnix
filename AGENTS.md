@@ -21,17 +21,22 @@ assume.
 ## Layout
 
 ```
-modules/routeros.nix    -- evalModules options (the low-level DSL, RouterOS-specific)
+modules/routeros.nix     -- evalModules options (the low-level DSL, RouterOS-specific)
 lib/toposort.nix         -- before/after -> ordered list (wraps lib.toposort)
 lib/render_rsc.nix       -- ordered routeros.config -> .rsc text
 lib/render_rsc/          -- per-kind rendering helpers used by render_rsc.nix
 lib/default.nix          -- evalConfig { modules } entry point
+lib/tests.nix            -- pure-Nix unit tests for render_rsc.nix/toposort.nix
 examples/                -- example configs, incl. one that intentionally cycles
-checks/                  -- RouterOS CHR integration check (requires KVM)
+checks/configs/          -- one focused config per feature, used by the
+                            RouterOS CHR integration check
+checks/                  -- RouterOS CHR integration check and the pure-Nix unit test check
 images.nix               -- RouterOS CHR images (one per entry in ros_versions.nix)
+vms.nix                  -- runnable QEMU VM scripts (one per entry in ros_versions.nix)
 ros_versions.nix         -- RouterOS CHR versions/hashes tested against
-flake.nix                -- packages.<system>.example, .cycle-example, .ros-vm-images,
-                            checks.x86_64-linux.routeros-<alias> (one per ros_versions.nix entry)
+flake.nix                -- packages.<system>.example, .cycle-example, .ros-vm-images, .ros-vms,
+                            checks.<system>.render-unit-tests,
+                            checks.<system>.routeros-<alias> (one per ros_versions.nix entry)
 ```
 
 ## Comments and option descriptions
@@ -71,11 +76,9 @@ history belong in `DESIGN.md`, not in `.nix` files.
   exercised on purpose, not a bug.
 - Use the shell tool's working-directory option to run commands in this
   repo; don't `cd` into it or pass `-C`.
-- `nix build .#checks.x86_64-linux.routeros-<alias> -L` (alias from
+- `nix build .#checks.<system>.routeros-<alias> -L` (alias from
   `ros_versions.nix`, e.g. `stable-v7`) boots a RouterOS CHR VM under QEMU,
-  imports the `.rsc` rendered from `examples/basic.nix`, and checks the
-  result over SSH. Requires KVM on the build host and network access to
-  fetch the CHR image. `nix flake check` runs it for every version.
-- That check only asserts that the expected entries exist, not their order,
-  idempotence, or pruning — so "does it build and does the rendered `.rsc`
-  look right" is still the main bar.
+  imports the `.rsc` files rendered from `checks/configs/*.nix`, and checks
+  the results over SSH. Uses KVM when available, falls back to TCG. Requires
+  network access to fetch the CHR image. `nix flake check` runs it for every
+  version.

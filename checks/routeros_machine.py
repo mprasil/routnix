@@ -83,10 +83,11 @@ class RouterOsMachine(QemuMachine):
 
         start_command = (
             f"{qemu_bin}"
-            f" -enable-kvm"
             f" -m 256"
             # RouterOS CHR is MBR-partitioned and expects legacy boot.
             f" -machine type=pc"
+            # Try to use kvm if available, fall back to default tcg.
+            f",accel=kvm:tcg"
             f" -drive file={image_path},format=raw,if=virtio,id=hd0"
             # Redirects guest writes to a temp file as image is read-only:
             f",snapshot=on"

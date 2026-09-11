@@ -1,22 +1,41 @@
-# Integration test: boot a RouterOS CHR VM under QEMU and verify that the
-# routnix-generated .rsc can be imported and produces the expected config.
+# Integration test: boot a RouterOS CHR VM under QEMU and verify that
+# routnix-generated .rsc snippets apply as expected.
 #
-# Requires KVM on the build host (requiredSystemFeatures = ["kvm"]).
 # Run against a single RouterOS version:
 #   nix build .#checks.x86_64-linux.routeros-stable-v7 -L
 # Run against every version in ros_versions.nix:
 #   nix flake check
 {
   pkgs,
+  lib ? pkgs.lib,
   routnixLib,
   image,
   name,
 }: let
   # ------------------------------------------------------------------
-  # routnix output: the .rsc generated from the basic example config
+  # One rendered .rsc per file in checks/configs/, named after that
+  # file (minus ".nix"). routeros_test.py knows the specific set of
+  # test names it expects and drives the assertions for each; this side
+  # only has to keep every config's *.rsc available to it under that
+  # name.
   # ------------------------------------------------------------------
-  example = routnixLib.evalConfig {modules = [../examples/basic.nix];};
-  rscFile = pkgs.writeText "routnix-example.rsc" example.rsc;
+  configsDir = ./configs;
+  configNames = builtins.map (lib.removeSuffix ".nix") (
+    builtins.filter (lib.hasSuffix ".nix") (builtins.attrNames (builtins.readDir configsDir))
+  );
+
+  rscFor = configName: let
+    evaluated = routnixLib.evalConfig {modules = [(configsDir + "/${configName}.nix")];};
+  in
+    pkgs.writeText "routnix-${configName}.rsc" evaluated.rsc;
+
+  rscDir = pkgs.linkFarm "routnix-test-configs" (
+    builtins.map (n: {
+      name = "${n}.rsc";
+      path = rscFor n;
+    })
+    configNames
+  );
 
   testPython = pkgs.python3.withPackages (
     ps: [
@@ -36,26 +55,15 @@
 in
   pkgs.stdenv.mkDerivation {
     name = "routeros-integration-test-${name}";
-
-    nativeBuildInputs = [
-      pkgs.qemu_test
-      pkgs.openssh
-      testPython
-    ];
-
     buildCommand = ''
       mkdir -p "$out"
 
-      # Our helper scripts; test_driver itself and its Python deps come
-      # from testPython's own site-packages.
-      export PYTHONPATH="${testHelpers}"
-
       ${testPython}/bin/python3 ${testHelpers}/routeros_test.py \
         --image   "$(ls ${image}/*.img)" \
-        --rsc     "${rscFile}" \
-        --qemu    "$(command -v qemu-system-x86_64)" \
-        --ssh     "$(command -v ssh)" \
-        --scp     "$(command -v scp)" \
+        --rsc-dir "${rscDir}" \
+        --qemu    "$(command -v ${pkgs.qemu_test}/bin/qemu-system-x86_64)" \
+        --ssh     "$(command -v ${pkgs.openssh}/bin/ssh)" \
+        --scp     "$(command -v ${pkgs.openssh}/bin/scp)" \
         --out-dir "$out"
 
       touch "$out/success"

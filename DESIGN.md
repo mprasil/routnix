@@ -51,16 +51,20 @@ Design priorities:
 ### Repo layout
 
 ```
-modules/routeros.nix    -- the evalModules options (RouterOS-specific)
+modules/routeros.nix     -- the evalModules options (RouterOS-specific)
 lib/toposort.nix         -- before/after -> ordered list, via lib.toposort
 lib/render_rsc.nix       -- ordered routeros.config -> .rsc text
 lib/render_rsc/          -- per-kind rendering helpers used by render_rsc.nix
 lib/default.nix          -- glue: evalConfig { modules } -> evaluated config + .rsc
+lib/tests.nix            -- pure-Nix unit tests for render_rsc.nix/toposort.nix
 examples/basic.nix       -- example config
 examples/cycle.nix       -- example that intentionally triggers a cycle error
-checks/                  -- RouterOS CHR integration check (requires KVM)
-flake.nix                -- exposes packages.<system>.example (built .rsc)
-                            and checks.x86_64-linux.routeros-<alias>, one per
+checks/configs/          -- one focused config per feature, used by the
+                            RouterOS CHR integration check below
+checks/                  -- RouterOS CHR integration check and the pure-Nix unit test check
+flake.nix                -- exposes packages.<system>.example (built .rsc),
+                            checks.<system>.render-unit-tests, and
+                            checks.<system>.routeros-<alias>, one per
                             RouterOS version in ros_versions.nix
 ```
 
@@ -396,6 +400,21 @@ rendered script. See "Multi-router / flake shape" below for how this is
 expected to extend to managing several routers from one flake — no rework
 anticipated there, just wrapping multiple calls to this function.
 
+### Unit tests (`lib/tests.nix`)
+
+`lib/tests.nix` exercises `lib/render_rsc.nix` and `lib/toposort.nix`
+directly, via nixpkgs' `lib.runTests`, with no VM involved: exact `.rsc`
+text for each `kind`'s happy path (including `deriveFind`'s `!k` rendering
+for a field only some items in a list set, and `before`/`after` ordering
+between whole paths), and that the documented error cases actually throw
+(duplicate `find`/derived-identity within one path's `items`, `find`
+missing on `kind = "effect"`, `prune = true` on `kind = "settings"` or
+`"effect"`, and a dependency cycle). `checks/render-unit-tests.nix` forces
+evaluation of `lib/tests.nix` and fails the build with the failing tests'
+names and expected-vs-actual values if any of them don't pass; it's
+exposed as `checks.<system>.render-unit-tests` for every system in
+`flake.nix`.
+
 ### Integration check (`checks/`)
 
 `ros_versions.nix` lists the RouterOS CHR versions tested against, keyed by
@@ -405,10 +424,12 @@ turns each of those images into its own
 `checks.<system>.routeros-<alias>` check, so a specific version can be built
 on its own and `nix flake check` exercises all of them.
 
-Each check boots its RouterOS CHR image under QEMU, copies the `.rsc`
-rendered from `examples/basic.nix` to it over scp, runs `/import`, and
-inspects the result over SSH. It needs KVM on the build host
-(`requiredSystemFeatures = [ "kvm" ]`) and network access for the image.
+Each check boots its RouterOS CHR image under QEMU once, then runs a fixed
+sequence of subtests against it (`checks/routeros_test.py`); each subtest
+copies the `.rsc` rendered from one `checks/configs/*.nix` file to it over
+scp, runs `/import`, and inspects the result over SSH. It uses KVM when
+available and falls back to TCG otherwise; it needs network access to fetch
+the image.
 
 `checks/routeros_machine.py` wraps nixpkgs' `QemuMachine` for QEMU
 lifecycle and serial-output capture only — the NixOS backdoor shell
@@ -416,14 +437,22 @@ lifecycle and serial-output capture only — the NixOS backdoor shell
 about it — and adds SSH/SCP helpers. Its `QemuStartCommand` subclass omits
 virtio-serial/virtconsole so RouterOS keeps COM1 as its console. Commands
 run as the default `admin` account with its empty password; no setup step
-on the guest is needed. `checks/routeros_test.py` drives all of that and
-holds the assertions.
+on the guest is needed.
 
-What it checks today: that the four `/ip/firewall/filter` rules and the
-`/ip/firewall/address-list` entry declared by `examples/basic.nix` are
-present after the import. Not covered yet: rule *order*, idempotence on
-reapply, `prune`/`ignore` behavior, and `/import`'s own output (RouterOS
-can exit 0 even when the script errors).
+Each `checks/configs/*.nix` file isolates one behavior (e.g.
+`ordered_basic.nix`, `unordered_prune.nix`, `effect_basic.nix`), and
+`checks/routeros_test.py` runs one subtest per file so a failure names the
+specific feature that broke rather than "the result isn't as expected".
+Most subtests clean up whatever path they touched afterward (`remove
+[find ...]`); the `"ordered"`-kind group is the exception and
+deliberately builds on the state the previous one left behind
+(add-in-order, idempotent reapply, drift restoration via `move`, a field
+edit, then `ignore`-guarded pruning) since `kind = "ordered"`'s mandatory
+prune makes each apply a clean slate anyway. All subtests run regardless
+of earlier failures, and
+`/import`'s own textual output is checked for error-looking text (not
+just its exit code, which RouterOS can report as success even when the
+script errored).
 
 ## Open design space
 

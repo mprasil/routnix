@@ -4,7 +4,7 @@
   ...
 } @ inputs: let
   images = import ./images.nix inputs;
-  qemu = "${pkgs.qemu_kvm}/bin/qemu-kvm";
+  qemu = "${pkgs.qemu}/bin/qemu-system-x86_64";
 in
   lib.mapAttrs (ros_version: image:
     pkgs.writeShellApplication {
@@ -14,7 +14,7 @@ in
 
         ${qemu} \
           -m 256 \
-          -machine type=pc \
+          -machine type=pc,accel=kvm:tcg \
           -nographic \
           -serial mon:stdio \
           -drive "file=''${VM_IMAGE_FILE},format=raw,id=hd0,snapshot=on" \
