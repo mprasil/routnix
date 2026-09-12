@@ -8,7 +8,7 @@
 }: let
   # lib/tests.nix throws (listing the failing test names, expected vs.
   # actual) if any test failed, and evaluates to `null` otherwise.
-  result = import ../lib/tests.nix {inherit lib;};
+  result = import ../lib/tests.nix {inherit pkgs lib;};
 in
   pkgs.runCommand "routnix-render-unit-tests" {} ''
     : ${builtins.seq result ""}

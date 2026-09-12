@@ -1,4 +1,7 @@
-{lib}: let
+{
+  lib,
+  pkgs,
+}: let
   inherit (import ./render_rsc/common.nix {inherit lib;}) renderValue renderArgs renderQuery;
   inherit (import ./render_rsc/unordered.nix {inherit lib;}) deriveFind;
   routnix = import ./default.nix {inherit lib;};
@@ -10,6 +13,34 @@
 
   # True iff fully evaluating `expr` throws.
   throws = expr: !(builtins.tryEval (builtins.deepSeq expr true)).success;
+
+  # Format failures nicely
+  diffFailures = f: let
+    toDiffableString = v:
+      if builtins.typeOf v == "string"
+      then v
+      else lib.generators.toPretty {} v;
+  in
+    builtins.readFile (
+      pkgs.runCommand "diff-error" {} ''
+        cat > expected.txt <<'ENDOFTESTSTRING'
+        ${toDiffableString f.expected}
+        ENDOFTESTSTRING
+        cat > got.txt <<'ENDOFTESTSTRING'
+        ${toDiffableString f.result}
+        ENDOFTESTSTRING
+        echo "#### FAILED TEST: ${f.name}" > $out
+        echo "## Test Result:" >> $out
+        cat got.txt >> $out
+        echo >> $out
+        echo "## Difference:" >> $out
+        ${pkgs.diffutils}/bin/diff \
+          --color=always \
+          --label "Test Result" \
+          --label "Expected" \
+          -u  got.txt expected.txt >> "$out" || true
+      ''
+    );
 
   tests = {
     # -- renderValue: scalar rendering rules ---------------------------
@@ -558,5 +589,5 @@ in
   else
     throw ''
       routnix: ${toString (builtins.length failures)} lib/tests.nix test(s) failed:
-      ${builtins.toJSON failures}
+      ${lib.concatMapStringsSep "\n\n" diffFailures failures}
     ''
