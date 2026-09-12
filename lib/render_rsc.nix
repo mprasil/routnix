@@ -1,5 +1,5 @@
 {lib}: let
-  inherit (lib) concatStringsSep filter;
+  inherit (lib) concatStringsSep filter optionals;
 
   inherit (import ./render_rsc/common.nix {inherit lib;}) renderValue renderArgs renderQuery;
   inherit (import ./render_rsc/ordered.nix {inherit lib;}) renderOrderedItems;
@@ -14,10 +14,13 @@
 
   renderEntry = path: entry: let
     # "effect" requires an explicit `find`; "ordered"/"unordered"
-    # always derive their own from `items` instead.
+    # always derive their own from `items` instead, folding in
+    # `ignore`'s fields wherever `ignore` is actually in effect.
     find =
-      if entry.kind == "ordered" || entry.kind == "unordered"
-      then deriveFind entry.items
+      if entry.kind == "ordered"
+      then deriveFind (entry.items ++ entry.ignore)
+      else if entry.kind == "unordered"
+      then deriveFind (entry.items ++ optionals entry.prune entry.ignore)
       else entry.find;
     # All three rely on `find` to tell items apart: two items whose
     # `find` produces the same query would collapse into one entry.

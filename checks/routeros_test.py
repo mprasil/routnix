@@ -240,6 +240,34 @@ def test_ordered_ignore(ros: RouterOsMachine, rsc_dir: Path) -> None:
     ros.ssh_cmd(f"{FILTER} remove [find]")
 
 
+def test_ordered_ignore_overlap(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """An `ignore`d entry that matches a declared item's derived `find`
+    (because that item doesn't set the field the `ignore` predicate
+    keys on, e.g. `comment`) must stay distinguishable from that item's
+    own entry once routnix creates it alongside -- reapplying must not
+    hit "find matched more than one entry"."""
+    ros.ssh_cmd(
+        f'{FILTER} add chain=input action=accept protocol=icmp '
+        f'comment="routnix-test-ordered-ignore-overlap"'
+    )
+
+    import_config(ros, rsc_dir, "ordered_ignore_overlap")
+    assert_eq(count_only(ros, FILTER), 2, context=f"{FILTER} count after first apply")
+
+    # Reapplying must still tell the ignored entry and the declared
+    # item's own entry apart, even though both now match
+    # chain=input action=accept protocol=icmp.
+    import_config(ros, rsc_dir, "ordered_ignore_overlap")
+    assert_contains(
+        ros.ssh_cmd(f"{FILTER} print"),
+        "routnix-test-ordered-ignore-overlap",
+        context=f"{FILTER} print after reapply",
+    )
+    assert_eq(count_only(ros, FILTER), 2, context=f"{FILTER} count after reapply (no duplicate)")
+
+    ros.ssh_cmd(f"{FILTER} remove [find]")
+
+
 def test_unordered_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
     """kind = "unordered": a missing item is added."""
     import_config(ros, rsc_dir, "unordered_basic")
@@ -340,6 +368,7 @@ SUBTESTS: list[tuple[str, Callable[[RouterOsMachine, Path], None]]] = [
     ("ordered_reorder", test_ordered_reorder),
     ("ordered_edit", test_ordered_edit),
     ("ordered_ignore", test_ordered_ignore),
+    ("ordered_ignore_overlap", test_ordered_ignore_overlap),
     ("unordered_add", test_unordered_add),
     ("unordered_idempotent", test_unordered_idempotent),
     ("unordered_find_fields", test_unordered_find_fields),
