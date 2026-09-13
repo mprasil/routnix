@@ -27,14 +27,14 @@ lib/render_rsc.nix       -- ordered routeros.config -> .rsc text
 lib/render_rsc/          -- per-kind rendering helpers used by render_rsc.nix
 lib/default.nix          -- evalConfig { modules } entry point
 lib/tests/               -- pure-Nix unit tests for library nix files split by topic
-examples/                -- example configs, incl. one that intentionally cycles
+examples/                -- example configs
 checks/configs/          -- one focused config per feature, used by the
                             RouterOS CHR integration check
 checks/                  -- RouterOS CHR integration check and the pure-Nix unit test check
 images.nix               -- RouterOS CHR images (one per entry in ros_versions.nix)
 vms.nix                  -- runnable QEMU VM scripts (one per entry in ros_versions.nix)
 ros_versions.nix         -- RouterOS CHR versions/hashes tested against
-flake.nix                -- packages.<system>.example, .cycle-example, .ros-vm-images, .ros-vms,
+flake.nix                -- packages.<system>.example, .ros-vm-images, .ros-vms,
                             checks.<system>.render-unit-tests,
                             checks.<system>.routeros-<alias> (one per ros_versions.nix entry)
 ```
@@ -71,9 +71,6 @@ history belong in `DESIGN.md`, not in `.nix` files.
 ## Working in this repo
 
 - Build and inspect output: `nix build .#example && cat result`.
-- `nix build .#cycle-example` is expected to fail with a `routnix:
-  dependency cycle detected` error — that's the cycle-detection path being
-  exercised on purpose, not a bug.
 - Use the shell tool's working-directory option to run commands in this
   repo; don't `cd` into it or pass `-C`.
 - `nix build .#checks.<system>.routeros-<alias> -L` (alias from

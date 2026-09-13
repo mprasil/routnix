@@ -22,12 +22,8 @@
     packages = forAllSystems (system: let
       pkgs = nixpkgs.legacyPackages.${system};
       example = routnixLib.evalConfig {modules = [./examples/basic.nix];};
-      cycleExample = routnixLib.evalConfig {modules = [./examples/cycle.nix];};
     in {
       example = pkgs.writeText "routnix-example.rsc" example.rsc;
-      # Intentionally cyclic `after`/`after` between the two entries;
-      # only exists to exercise the cycle-detection error path.
-      cycle-example = pkgs.writeText "routnix-cycle-example.rsc" cycleExample.rsc;
       ros-vm-images = import ./images.nix {inherit lib pkgs;};
       ros-vms = import ./vms.nix {inherit lib pkgs;};
     });

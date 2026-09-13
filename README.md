@@ -46,8 +46,7 @@ renders a single `.rsc` script in the right order.
 $ nix build .#example && cat result
 ```
 
-See `examples/` for the source of that config, and `examples/cycle.nix` /
-`.#cycle-example` for what a dependency-cycle error looks like.
+See `examples/` for the source of that config.
 
 ## RouterOS CHR VMs
 

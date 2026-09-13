@@ -1,7 +1,6 @@
 {
   rsc,
   throws,
-  routnix,
   ...
 }: {
   # -- ordering between whole paths (`before`/`after`, toposort) ------
@@ -49,11 +48,6 @@
         after = ["/a"];
       };
     });
-    expected = true;
-  };
-
-  testCycleExampleThrows = {
-    expr = throws (routnix.evalConfig {modules = [../../examples/cycle.nix];}).rsc;
     expected = true;
   };
 }
