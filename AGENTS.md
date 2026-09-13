@@ -34,7 +34,8 @@ checks/                  -- RouterOS CHR integration check and the pure-Nix unit
 images.nix               -- RouterOS CHR images (one per entry in ros_versions.nix)
 vms.nix                  -- runnable QEMU VM scripts (one per entry in ros_versions.nix)
 ros_versions.nix         -- RouterOS CHR versions/hashes tested against
-flake.nix                -- packages.<system>.example, .ros-vm-images, .ros-vms,
+flake.nix                -- packages.<system>.example, .ros-image-<alias>, .ros-vm-<alias>
+                            (one pair per ros_versions.nix entry),
                             checks.<system>.render-unit-tests,
                             checks.<system>.routeros-<alias> (one per ros_versions.nix entry)
 ```

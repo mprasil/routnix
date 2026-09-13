@@ -55,13 +55,13 @@ exposes packaged CHR (Cloud Hosted Router) images and ready-to-run VMs for
 a set of RouterOS versions (see `ros_versions.nix`):
 
 ```console
-$ nix run .#ros-vms.long-term-v7
+$ nix run .#ros-vm-long-term-v7
 ```
 
 This boots the corresponding CHR image under QEMU/KVM with SSH forwarded
 to the host (port `2222` by default, override with `VM_SSH_PORT`). The
 underlying disk image is also available on its own via
-`.#ros-vm-images.<alias>`, e.g. `.#ros-vm-images.stable-v7`.
+`.#ros-image-<alias>`, e.g. `.#ros-image-stable-v7`.
 
 To quit the VM, use `ctrl-A x` (a QEMU monitor escape, not RouterOS-specific).
 

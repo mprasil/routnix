@@ -3,11 +3,7 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = {
-    self,
-    nixpkgs,
-    ...
-  }: let
+  outputs = {nixpkgs, ...}: let
     forAllSystems = nixpkgs.lib.genAttrs [
       "x86_64-linux"
       "aarch64-linux"
@@ -17,19 +13,29 @@
     lib = nixpkgs.lib;
     routnixLib = import ./lib {inherit lib;};
   in {
+    # export routnix library
     lib = routnixLib;
 
     packages = forAllSystems (system: let
       pkgs = nixpkgs.legacyPackages.${system};
+      images = import ./images.nix {inherit lib pkgs;};
+      vms = import ./vms.nix {inherit lib pkgs;};
+
       example = routnixLib.evalConfig {modules = [./examples/basic.nix];};
-    in {
-      example = pkgs.writeText "routnix-example.rsc" example.rsc;
-      ros-vm-images = import ./images.nix {inherit lib pkgs;};
-      ros-vms = import ./vms.nix {inherit lib pkgs;};
-    });
+      # VM image for specific ROS version
+      ros-vm-images = lib.mapAttrs' (name: value: lib.nameValuePair "ros-image-${name}" value) images;
+      # VM with specific ROS version
+      ros-vms = lib.mapAttrs' (name: value: lib.nameValuePair "ros-vm-${name}" value) vms;
+    in
+      {
+        example = pkgs.writeText "routnix-example.rsc" example.rsc;
+      }
+      // ros-vm-images
+      // ros-vms);
 
     checks = forAllSystems (system: let
       pkgs = nixpkgs.legacyPackages.${system};
+      images = import ./images.nix {inherit lib pkgs;};
     in
       {
         # Pure-Nix unit tests for lib/render_rsc.nix and lib/toposort.nix
@@ -44,6 +50,6 @@
               name = alias;
             })
         )
-        self.packages.${system}.ros-vm-images));
+        images));
   };
 }

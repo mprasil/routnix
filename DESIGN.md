@@ -421,7 +421,7 @@ expected-vs-actual values if any of them don't pass; it's exposed as
 
 `ros_versions.nix` lists the RouterOS CHR versions tested against, keyed by
 alias (e.g. `stable-v7`, `long-term-v6`); `images.nix` fetches each from
-MikroTik as a `packages.<system>.ros-vm-images.<alias>` derivation. `flake.nix`
+MikroTik as a `packages.<system>.ros-image-<alias>` derivation. `flake.nix`
 turns each of those images into its own
 `checks.<system>.routeros-<alias>` check, so a specific version can be built
 on its own and `nix flake check` exercises all of them.
