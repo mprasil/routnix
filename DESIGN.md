@@ -56,7 +56,8 @@ lib/toposort.nix         -- before/after -> ordered list, via lib.toposort
 lib/render_rsc.nix       -- ordered routeros.config -> .rsc text
 lib/render_rsc/          -- per-kind rendering helpers used by render_rsc.nix
 lib/default.nix          -- glue: evalConfig { modules } -> evaluated config + .rsc
-lib/tests.nix            -- pure-Nix unit tests for render_rsc.nix/toposort.nix
+lib/tests/               -- pure-Nix unit tests for render_rsc.nix/toposort.nix,
+                            split by topic, auto-loaded from lib/tests/default.nix
 examples/basic.nix       -- example config
 examples/cycle.nix       -- example that intentionally triggers a cycle error
 checks/configs/          -- one focused config per feature, used by the
@@ -401,20 +402,24 @@ rendered script. See "Multi-router / flake shape" below for how this is
 expected to extend to managing several routers from one flake — no rework
 anticipated there, just wrapping multiple calls to this function.
 
-### Unit tests (`lib/tests.nix`)
+### Unit tests (`lib/tests/`)
 
-`lib/tests.nix` exercises `lib/render_rsc.nix` and `lib/toposort.nix`
+`lib/tests/` exercises `lib/render_rsc.nix` and `lib/toposort.nix`
 directly, via nixpkgs' `lib.runTests`, with no VM involved: exact `.rsc`
 text for each `kind`'s happy path (including `deriveFind`'s `!k` rendering
 for a field only some items in a list set, and `before`/`after` ordering
 between whole paths), and that the documented error cases actually throw
 (duplicate `find`/derived-identity within one path's `items`, `find`
 missing on `kind = "effect"`, `prune = true` on `kind = "settings"` or
-`"effect"`, and a dependency cycle). `checks/render-unit-tests.nix` forces
-evaluation of `lib/tests.nix` and fails the build with the failing tests'
-names and expected-vs-actual values if any of them don't pass; it's
-exposed as `checks.<system>.render-unit-tests` for every system in
-`flake.nix`.
+`"effect"`, and a dependency cycle). Tests are grouped by topic into one
+file per sibling in `lib/tests/`; `lib/tests/default.nix` holds the shared
+test helpers, auto-discovers and merges every sibling file's tests via
+`builtins.readDir`, and runs them through `lib.runTests` -- adding a new
+file to the directory is enough to have its tests picked up, nothing else
+to wire up. `checks/render-unit-tests.nix` forces evaluation of
+`lib/tests/` and fails the build with the failing tests' names and
+expected-vs-actual values if any of them don't pass; it's exposed as
+`checks.<system>.render-unit-tests` for every system in `flake.nix`.
 
 ### Integration check (`checks/`)
 

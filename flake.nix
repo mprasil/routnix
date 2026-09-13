@@ -37,8 +37,8 @@
     in
       {
         # Pure-Nix unit tests for lib/render_rsc.nix and lib/toposort.nix
-        # (lib/tests.nix): throws (failing the build) if any test in
-        # lib/tests.nix fails.
+        # (lib/tests/): throws (failing the build) if any test in
+        # lib/tests/ fails.
         render-unit-tests = pkgs.callPackage ./checks/render-unit-tests.nix {};
       }
       // (lib.mapAttrs' (
