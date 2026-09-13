@@ -242,6 +242,42 @@
       '';
     };
 
+    # `ignore` predicates each resolve to their own `find` and get
+    # appended onto the same `$ignore` list (`($ignore, [...])`, not
+    # overwritten) -- with two predicates on different fields, both
+    # fields must show up in the derived `find`'s null-padding, and
+    # there must be one accumulating `:set ignore` line per predicate.
+    testUnorderedPruneAccumulatesMultipleIgnorePredicates = {
+      expr = rsc {
+        routeros.config."/x" = {
+          kind = "unordered";
+          prune = true;
+          ignore = [{c = "keep";} {d = "also-keep";}];
+          items = [{a = "1";}];
+        };
+      };
+      expected = ''
+        /x
+        :local ignore ({})
+        :set ignore ($ignore, [/x find where c="keep"])
+        :set ignore ($ignore, [/x find where d="also-keep"])
+        :local managed ({})
+        {
+          :local item [/x find where a="1" !c !d]
+          :if ([:len $item] > 1) do={
+              :error ("routnix: find matched more than one entry in /x")
+          }
+          :if ($item = "" || [:find $ignore $item -1] >= 0) do={
+              :set item [add a="1"]
+          }
+          :set managed ($managed, $item)
+        }
+        :foreach i in=[/x find] do={
+          :if ([:find ($managed,$ignore) $i -1] < 0) do={ /x remove $i }
+        }
+      '';
+    };
+
     # Without `prune = true`, `ignore` is already inert for
     # `kind = "unordered"` (not wired into `$ignore` or a prune sweep at
     # all -- see renderUnordered) -- derived `find` must stay as-is,
@@ -481,6 +517,62 @@
         :local managed ({})
         {
           :local item [find where a="1" !c]
+          :if ([:len $item] > 1) do={
+            :error ("routnix: find matched more than one entry in /x")
+          }
+          :if ($item = "" || [:find $ignore $item -1] >= 0) do={
+            :if ([print count-only] > 0) do={
+            :set item [add place-before=([find]->0) a="1"]
+          } else={
+            :set item [add a="1"]
+          }
+          }
+          :set managed ($managed, $item)
+        }
+
+        {
+          :local first ($managed->0)
+          :local firstExisting ([find]->0)
+          :if ($first != $firstExisting) do={
+            move $first destination=$firstExisting
+          }
+          :if ([:len $managed] > 1) do={
+            :local prev $first
+            :for i from=1 to=([:len $managed] - 1) do={
+              :local cur ($managed->$i)
+              :local dest ([get $prev]->".nextid")
+              :if ($cur != $dest) do={
+                move $cur destination=$dest
+              }
+              :set prev $cur
+            }
+          }
+        }
+        :foreach i in=[find] do={
+          :if ([:find ($managed,$ignore) $i -1] < 0) do={ remove $i }
+        }
+      '';
+    };
+
+    # Same accumulation as testUnorderedPruneAccumulatesMultipleIgnorePredicates,
+    # for `kind = "ordered"` (always pruned, so `ignore` is always
+    # active here).
+    testOrderedAccumulatesMultipleIgnorePredicates = {
+      expr = rsc {
+        routeros.config."/x" = {
+          kind = "ordered";
+          ignore = [{c = "keep";} {d = "also-keep";}];
+          items = [{a = "1";}];
+        };
+      };
+      expected = ''
+        /x
+        :local ignore ({})
+        :set ignore ($ignore, [find where c="keep"])
+        :set ignore ($ignore, [find where d="also-keep"])
+        :local managed ({})
+        {
+          :local item [find where a="1" !c !d]
           :if ([:len $item] > 1) do={
             :error ("routnix: find matched more than one entry in /x")
           }

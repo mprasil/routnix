@@ -217,15 +217,24 @@ def test_ordered_edit(ros: RouterOsMachine, rsc_dir: Path) -> None:
 
 def test_ordered_ignore(ros: RouterOsMachine, rsc_dir: Path) -> None:
     """`ignore` protects hand-managed entries from the mandatory prune
-    sweep; anything else not declared is still removed -- including
-    whatever ordered_edit.nix left behind."""
+    sweep; multiple `ignore` predicates each contribute their own
+    matches to the same exemption, not just the first one declared;
+    anything else not declared is still removed -- including whatever
+    ordered_edit.nix left behind."""
     ros.ssh_cmd(f'{FILTER} add chain=input action=accept comment="routnix-test-ordered-keep"')
+    ros.ssh_cmd(f'{FILTER} add chain=input action=accept comment="routnix-test-ordered-keep-2"')
     ros.ssh_cmd(f'{FILTER} add chain=input action=accept comment="routnix-test-ordered-manual"')
 
     import_config(ros, rsc_dir, "ordered_ignore")
 
     out = ros.ssh_cmd(f"{FILTER} print")
-    assert_contains(out, "routnix-test-ordered-icmp", "routnix-test-ordered-keep", context=f"{FILTER} print after ignore")
+    assert_contains(
+        out,
+        "routnix-test-ordered-icmp",
+        "routnix-test-ordered-keep",
+        "routnix-test-ordered-keep-2",
+        context=f"{FILTER} print after ignore",
+    )
     assert_not_contains(
         out,
         "routnix-test-ordered-manual",
@@ -234,7 +243,7 @@ def test_ordered_ignore(ros: RouterOsMachine, rsc_dir: Path) -> None:
         "routnix-test-ordered-drop",
         context=f"{FILTER} print after ignore (unignored/undeclared entries pruned)",
     )
-    assert_eq(count_only(ros, FILTER), 2, context=f"{FILTER} count after ignore")
+    assert_eq(count_only(ros, FILTER), 3, context=f"{FILTER} count after ignore")
 
     # Leave the path clean for anything that might run after this.
     ros.ssh_cmd(f"{FILTER} remove [find]")
