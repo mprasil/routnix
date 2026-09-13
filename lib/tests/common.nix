@@ -14,11 +14,6 @@
     expr = renderValue false;
     expected = "no";
   };
-  # NOTE: DESIGN.md documents `int` as rendering bare (`22`, not
-  # `"22"`), but the current single `renderValue` implementation
-  # quotes every non-bool scalar, `int` included, everywhere (`args`
-  # and `where`-clause queries alike). This test pins down the actual
-  # current behavior, not the documented one.
   testRenderValueInt = {
     expr = renderValue 22;
     expected = ''"22"'';

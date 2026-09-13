@@ -371,16 +371,12 @@ Entries that render to nothing (empty `items`/`settings`, and no
 all of the above, and by `find`'s query and `create`'s default body):
 
 - `bool` → `yes` / `no`
-- `int` → bare (`22`, not `"22"`)
-- `str` → double-quoted
+- `int`/`str` → double-quoted (`"22"`, not `22`)
 
 `find`'s rendered query additionally supports a field being absent (used
 by `kind = "unordered"`/`"ordered"`'s derived `find`, see "Resource
 kinds" above, for a field some items set and others don't): it renders
-as `!k` rather than `k=v`. `kind = "ordered"`'s query rendering is the
-one exception to the `int` rule above: it quotes `int`s too (`"22"`),
-for RouterOS v6 `where`-clause compatibility — not yet applied to
-`"unordered"`/`"effect"`'s queries.
+as `!k` rather than `k=v`.
 
 Field order *within* one rendered line is whatever Nix's `attrsOf`
 iteration gives us (alphabetical) — this doesn't matter to RouterOS. Item

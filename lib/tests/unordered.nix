@@ -61,8 +61,7 @@
   };
 
   # Same bug as testOrderedDerivedFindIncludesIgnoreOnlyField, for
-  # `kind = "unordered"` with `prune = true` (the only case where
-  # `ignore` is actually wired in for this kind).
+  # `kind = "unordered"` with `prune = true`.
   testUnorderedPruneDerivedFindIncludesIgnoreOnlyField = {
     expr = rsc {
       routeros.config."/x" = {
