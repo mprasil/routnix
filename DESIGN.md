@@ -55,6 +55,8 @@ modules/routeros.nix     -- the evalModules options (RouterOS-specific)
 lib/toposort.nix         -- before/after -> ordered list, via lib.toposort
 lib/render_rsc.nix       -- ordered routeros.config -> .rsc text
 lib/render_rsc/          -- per-kind rendering helpers used by render_rsc.nix
+lib/extended.nix         -- nixpkgs lib extended with routnix's own
+                            functions under lib.routnix, for modules to use
 lib/default.nix          -- glue: evalConfig { modules } -> evaluated config + .rsc
 lib/tests/               -- pure-Nix unit tests for render_rsc.nix/toposort.nix,
                             split by topic, auto-loaded from lib/tests/default.nix
@@ -387,7 +389,7 @@ order-sensitive (`"ordered"`) tables.
 
 ```nix
 evalConfig { modules }:
-  -- evaluates `modules` (plus modules/routeros.nix) via lib.evalModules,
+  -- evaluates `modules` (plus routnix-provided modules) via lib.evalModules,
   -- topologically sorts config.routeros.config,
   -- returns the evalModules result plus an `rsc` attribute with the
   -- rendered, ordered .rsc text.
@@ -397,6 +399,13 @@ This is the per-router unit of evaluation: one call = one router's config +
 rendered script. See "Multi-router / flake shape" below for how this is
 expected to extend to managing several routers from one flake — no rework
 anticipated there, just wrapping multiple calls to this function.
+
+`evalConfig` calls `evalModules` on the lib built by `lib/extended.nix`
+(`nixpkgs lib.extend`-ed with routnix's own functions under `lib.routnix`,
+the same mechanism home-manager uses for `lib.hm`), so every module's
+`lib` argument already has `lib.routnix.*` available -- modules use e.g.
+`lib.routnix.perPlatform` directly rather than importing a specific
+`lib/*.nix` file themselves.
 
 ### Unit tests (`lib/tests/`)
 

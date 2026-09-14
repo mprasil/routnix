@@ -4,6 +4,7 @@
 }: let
   inherit (import ../render_rsc/common.nix {inherit lib;}) renderValue renderArgs renderQuery;
   inherit (import ../render_rsc/unordered.nix {inherit lib;}) deriveFind;
+  inherit (import ../per_platform.nix {inherit lib;}) perPlatform;
   routnix = import ../default.nix {inherit lib;};
 
   # Evaluates a small inline `routeros.config` module through the full
@@ -44,7 +45,7 @@
 
   # Arguments handed to every sibling test file in this directory.
   testFileArgs = {
-    inherit lib routnix eval rsc throws renderValue renderArgs renderQuery deriveFind;
+    inherit lib routnix eval rsc throws renderValue renderArgs renderQuery deriveFind perPlatform;
   };
 
   # Every `*.nix` file in this directory other than this one is a fragment

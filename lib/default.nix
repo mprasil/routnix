@@ -1,9 +1,15 @@
 {lib}: let
-  toposort = import ./toposort.nix {inherit lib;};
-  render = import ./render_rsc.nix {inherit lib;};
+  extendedLib = import ./extended.nix {inherit lib;};
+
+  # Routnix provided modules
+  providedModules =
+    map (name: ../modules + "/${name}")
+    (builtins.attrNames
+      (lib.filterAttrs
+        (name: type: type == "regular" && lib.hasSuffix ".nix" name)
+        (builtins.readDir ../modules)));
 in {
-  inherit (toposort) sortEntries;
-  inherit (render) renderConfig;
+  inherit (extendedLib) routnix;
 
   # Evaluates a routnix configuration and renders it into a `.rsc` script.
   #
@@ -13,8 +19,10 @@ in {
   # are all available) plus `rsc`, the fully rendered, dependency-ordered
   # `.rsc` text.
   evalConfig = {modules}: let
-    evaluated = lib.evalModules {modules = [../modules/routeros.nix] ++ modules;};
-    order = toposort.sortEntries evaluated.config.routeros.config;
+    evaluated = extendedLib.evalModules {
+      modules = providedModules ++ modules;
+    };
+    order = extendedLib.routnix.sortEntries evaluated.config.routeros.config;
   in
-    evaluated // {rsc = render.renderConfig evaluated.config.routeros.config order;};
+    evaluated // {rsc = extendedLib.routnix.renderConfig evaluated.config.routeros.config order;};
 }

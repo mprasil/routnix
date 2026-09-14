@@ -25,6 +25,8 @@ modules/routeros.nix     -- evalModules options (the low-level DSL, RouterOS-spe
 lib/toposort.nix         -- before/after -> ordered list (wraps lib.toposort)
 lib/render_rsc.nix       -- ordered routeros.config -> .rsc text
 lib/render_rsc/          -- per-kind rendering helpers used by render_rsc.nix
+lib/extended.nix         -- nixpkgs lib extended with routnix's own
+                            functions under lib.routnix, for modules to use
 lib/default.nix          -- evalConfig { modules } entry point
 lib/tests/               -- pure-Nix unit tests for library nix files split by topic
 examples/                -- example configs
