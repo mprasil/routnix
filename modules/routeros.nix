@@ -91,6 +91,10 @@
           entry's path context. A line can start with a different absolute
           path (e.g. `/file add ...`) without changing that context for
           subsequent lines. Ignored for other kinds.
+
+          For `kind = "effect"` with `prune = true`, running these commands
+          must leave behind an entry `find` matches -- applying errors
+          otherwise.
         '';
       };
 
@@ -107,11 +111,11 @@
         type = types.bool;
         default = false;
         description = ''
-          For `kind = "unordered"`: removes existing entries not matched
-          by `find` for any current item and not covered by `ignore`.
-          Off by default. For `kind = "ordered"`, entries are always
-          pruned this way regardless of this option's value. Only valid
-          for `kind = "unordered"` or `"ordered"`.
+          For `kind = "unordered"` or `"effect"`: removes existing entries
+          not matched by `find` for any current item and not covered by
+          `ignore`. Off by default. For `kind = "ordered"`, entries are
+          always pruned this way regardless of this option's value. Only
+          valid for `kind = "unordered"`, `"ordered"`, or `"effect"`.
         '';
       };
 
@@ -119,9 +123,9 @@
         type = types.listOf (types.attrsOf itemValueType);
         default = [];
         description = ''
-          For `kind = "unordered"` with `prune = true`, or `kind =
-          "ordered"` (always pruned): entries matching any of these
-          field predicates are left alone by pruning, even if not
+          For `kind = "unordered"` or `"effect"` with `prune = true`, or
+          `kind = "ordered"` (always pruned): entries matching any of
+          these field predicates are left alone by pruning, even if not
           declared in `items` -- for entries managed by hand or by
           another tool.
         '';

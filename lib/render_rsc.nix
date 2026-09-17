@@ -3,8 +3,8 @@
 
   inherit (import ./render_rsc/common.nix {inherit lib;}) renderValue renderArgs renderQuery;
   inherit (import ./render_rsc/ordered.nix {inherit lib;}) renderOrderedItems;
-  inherit (import ./render_rsc/item_creation.nix {inherit lib;}) renderGuardedItems;
   inherit (import ./render_rsc/unordered.nix {inherit lib;}) deriveFind renderUnordered;
+  inherit (import ./render_rsc/effect.nix {inherit lib;}) renderEffect;
 
   # A single `set` of all declared fields.
   renderSettings = path: settings:
@@ -30,8 +30,8 @@
       else map find entry.items;
     duplicate = filter (q: builtins.length (filter (q2: q2 == q) queries) > 1) queries;
   in
-    if entry.prune && (entry.kind == "settings" || entry.kind == "effect")
-    then throw ''routnix: `prune = true` is only valid for kind = "unordered" or "ordered" (at ${path})''
+    if entry.prune && entry.kind == "settings"
+    then throw ''routnix: `prune = true` is only valid for kind = "unordered", "ordered", or "effect" (at ${path})''
     else if entry.kind == "effect" && entry.find == null
     then throw ''routnix: `find` is required for kind = "effect" (at ${path})''
     else if duplicate != []
@@ -43,7 +43,7 @@
     else if entry.kind == "unordered"
     then renderUnordered path find entry
     else # "effect"
-      renderGuardedItems path find entry.create entry.items;
+      renderEffect path find entry;
 in {
   inherit renderValue renderArgs;
 

@@ -368,6 +368,37 @@ def test_effect_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
     ros.ssh_cmd('/system note set note=""')
 
 
+def test_effect_prune(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """`prune = true` on kind = "effect" removes entries not covered by
+    a current item's `find` or by `ignore`, the same as kind =
+    "unordered"; the declared item's id for the sweep is resolved by
+    re-`find`ing after `create` runs, since `create` here isn't a plain
+    `add`."""
+    ros.ssh_cmd(
+        f'{ADDRESS_LIST} add address=10.10.10.51 list="routnix-test-effect-prune" '
+        f'comment="routnix-test-effect-prune-keep"'
+    )
+    ros.ssh_cmd(
+        f'{ADDRESS_LIST} add address=10.10.10.52 list="routnix-test-effect-prune" '
+        f'comment="routnix-test-effect-prune-manual"'
+    )
+
+    import_config(ros, rsc_dir, "effect_prune")
+
+    out = ros.ssh_cmd(f'{ADDRESS_LIST} print where list="routnix-test-effect-prune"')
+    assert_contains(
+        out, "10.10.10.50", "routnix-test-effect-prune-keep",
+        context=f"{ADDRESS_LIST} print after prune",
+    )
+    assert_not_contains(out, "routnix-test-effect-prune-manual", context=f"{ADDRESS_LIST} print after prune")
+    assert_eq(count_only(ros, ADDRESS_LIST, 'list="routnix-test-effect-prune"'), 2)
+    note = ros.ssh_cmd("/system note print")
+    assert_contains(note, "routnix-test-effect-prune-note", context="/system note print (create's side effect)")
+
+    ros.ssh_cmd(f'{ADDRESS_LIST} remove [find where list="routnix-test-effect-prune"]')
+    ros.ssh_cmd('/system note set note=""')
+
+
 # Ordering matters within the "ordered_*" group -- each builds on the
 # router state the previous one left behind (see their docstrings).
 # Everything else is independent and self-cleaning.
@@ -386,6 +417,7 @@ SUBTESTS: list[tuple[str, Callable[[RouterOsMachine, Path], None]]] = [
     ("settings_idempotent", test_settings_idempotent),
     ("effect_add", test_effect_add),
     ("effect_idempotent", test_effect_idempotent),
+    ("effect_prune", test_effect_prune),
 ]
 
 

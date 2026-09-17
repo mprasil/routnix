@@ -201,8 +201,9 @@ a meaningful decision rather than something safe to fall back on:
   visibility into router state at eval time) then removes anything whose
   id is in neither list. Off by default, since removing entries is
   destructive; `kind = "ordered"` (see above) uses this same mechanism
-  unconditionally instead, regardless of this option's value. Setting
-  `prune` on `"settings"`/`"effect"` is an error. This only approximates
+  unconditionally instead, regardless of this option's value; `kind =
+  "effect"` (below) supports it too, with a different id-resolution step.
+  Setting `prune` on `"settings"` is an error. This only approximates
   ownership (see "Ownership and identity" below) — an entry that happens
   to match neither `ignore` nor any current `find` is removed even if
   routnix never created it.
@@ -237,6 +238,17 @@ a meaningful decision rather than something safe to fall back on:
   treats a fully-qualified one-line command as a one-off, not a permanent
   context switch — routnix doesn't need its own path-tracking mechanism
   for this.
+
+  Also supports `prune`/`ignore`, same semantics as `"unordered"` above.
+  Id resolution differs from `"unordered"`, though: that kind's `create`
+  defaults to a plain `add`, whose return value is captured directly as
+  the id, but `"effect"`'s `create` can run arbitrary commands with no
+  such guarantee (`import`, in the example above, doesn't hand back an
+  id the way `add` does). Instead, once `create` has run, `find` is
+  re-resolved to pick up the id -- erroring out if that still finds
+  nothing (or more than one match), since a `create` that doesn't leave
+  behind an entry `find` recognizes would otherwise go on rerunning (or
+  get immediately swept by the same apply's prune sweep) every time.
 
   This is distinct from `DESIGN.md`'s original "unmanaged" idea (below) —
   hardware-bound entries identified by native name, only ever `set` — which
@@ -321,12 +333,12 @@ For each path in dependency order, rendering branches on `kind`:
   `print count-only where ...` (a plain number) rather than
   `find where ...` (an id-or-empty-string) to check existence, since it
   sidesteps how `find` behaves when a query matches more than one entry.
-  `kind = "unordered"` with `prune = true` uses a different, id-tracking
-  block instead of this guard -- see below.
+  `kind = "unordered"`/`"effect"` with `prune = true` uses a different,
+  id-tracking block instead of this guard -- see below.
 - `"settings"`: emit `<path>` then a single `set k=v k=v ...` line built
   from the `settings` attrset.
 
-For `kind = "unordered"` with `prune = true`, and always for
+For `kind = "unordered"`/`"effect"` with `prune = true`, and always for
 `kind = "ordered"`, `ignore` is resolved to ids first, before any item is
 processed, once per path:
 ```
@@ -358,6 +370,24 @@ satisfying the same `find` query (the ignored one, and routnix's own).
 nothing (or only an ignored entry) before creating exactly one new entry
 can't turn up more than one match afterwards, so only the lookup *before*
 creating needs the ambiguity check.
+
+For `kind = "effect"`, `create`'s text can't be relied on to evaluate to
+the new entry's id the way a plain `add` can, so it runs as statements
+instead of being captured, and `find` is re-resolved afterward to pick
+the id back up -- this time with an `:error` on *no* match too, not just
+on more than one, since a `create` that doesn't leave behind an entry
+`find` recognizes is a bug in that path's `find`/`create` pair, not
+something to quietly leave unmanaged (which would just mean the entry
+gets removed by this same apply's prune sweep, right after being
+created):
+```
+:if ($item = "" || [:find $ignore $item -1] >= 0) do={
+  <create item's text, indented>
+  :set item [<path> find where k=v ...]
+  :if ($item = "") do={ :error (...) }
+  :if ([:len $item] > 1) do={ :error (...) }
+}
+```
 
 The sweep itself is then a single array-membership check per existing
 entry, rather than re-testing every entry against every current item's
@@ -623,15 +653,17 @@ This is accepted for now as the same adoption risk already noted above,
 just applied to positioning instead of update/prune — not solved by a
 tag-based mechanism, if one lands later. Since pruning is mandatory for
 this kind (see "Resource kinds" above), the same risk also applies to
-removal here, exactly as it already does for `"unordered"`'s optional
-`prune` below.
+removal here, exactly as it already does for `"unordered"`'s and
+`"effect"`'s optional `prune` below.
 
-**Partially settled and implemented** for `kind = "unordered"` (optional)
-and `kind = "ordered"` (mandatory): stale-entry cleanup via
+**Partially settled and implemented** for `kind = "unordered"` (optional),
+`kind = "effect"` (optional), and `kind = "ordered"` (mandatory):
+stale-entry cleanup via
 `prune`/`ignore` (see "Resource kinds" above) — but as an approximation
 of ownership, not the tag-based mechanism discussed above. `prune`
 removes anything whose id isn't recorded as managed (resolved via a
-current item's derived identity) or covered by `ignore`, with no notion
+current item's identity -- derived for `"unordered"`/`"ordered"`,
+explicit `find` for `"effect"`) or covered by `ignore`, with no notion
 of "entries we created" distinct from "entries that happen to match" —
 so it inherits the same adoption risk noted above, applied to deletion
 instead of update: an entry `routnix` never created can still be pruned

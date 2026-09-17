@@ -49,15 +49,48 @@
     expected = true;
   };
 
-  testPruneOnEffectThrows = {
-    expr = throws (rsc {
+  # Unlike `"unordered"`'s prune (which captures `create`'s own return
+  # value as the id directly), `create` for `"effect"` may run
+  # arbitrary, non-id-returning commands -- the id is instead resolved
+  # by re-running `find` once `create` has run, guarded by an `:error`
+  # for the case that still doesn't turn up a match (or turns up more
+  # than one).
+  testEffectPruneUsesIdTrackingAndSweep = {
+    expr = rsc {
       routeros.config."/x" = {
         kind = "effect";
         prune = true;
+        ignore = [{c = "keep";}];
         find = item: {a = item.a;};
+        create = item: "custom " + item.a;
         items = [{a = "1";}];
       };
-    });
-    expected = true;
+    };
+    expected = ''
+      /x
+      :local ignore ({})
+      :set ignore ($ignore, [/x find where c="keep"])
+      :local managed ({})
+      {
+        :local item [/x find where a="1"]
+        :if ([:len $item] > 1) do={
+          :error ("routnix: find matched more than one entry in /x")
+        }
+        :if ($item = "" || [:find $ignore $item -1] >= 0) do={
+          custom 1
+          :set item [/x find where a="1"]
+          :if ($item = "") do={
+            :error ("routnix: create for /x didn't produce an entry matching find")
+          }
+          :if ([:len $item] > 1) do={
+            :error ("routnix: find matched more than one entry in /x")
+          }
+        }
+        :set managed ($managed, $item)
+      }
+      :foreach i in=[/x find] do={
+        :if ([:find ($managed,$ignore) $i -1] < 0) do={ /x remove $i }
+      }
+    '';
   };
 }
