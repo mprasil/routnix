@@ -304,8 +304,8 @@ def test_unordered_find_fields(ros: RouterOsMachine, rsc_dir: Path) -> None:
 
 
 def test_unordered_prune(ros: RouterOsMachine, rsc_dir: Path) -> None:
-    """`prune = true` removes entries not covered by a current item's
-    `find` or by `ignore`; an `ignore`d entry survives."""
+    """kind = "unordered" always removes entries not covered by a
+    current item's `find` or by `ignore`; an `ignore`d entry survives."""
     ros.ssh_cmd(
         f'{ADDRESS_LIST} add address=10.10.10.21 list="routnix-test-prune" '
         f'comment="routnix-test-prune-keep"'
@@ -369,11 +369,10 @@ def test_effect_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
 
 
 def test_effect_prune(ros: RouterOsMachine, rsc_dir: Path) -> None:
-    """`prune = true` on kind = "effect" removes entries not covered by
-    a current item's `find` or by `ignore`, the same as kind =
-    "unordered"; the declared item's id for the sweep is resolved by
-    re-`find`ing after `create` runs, since `create` here isn't a plain
-    `add`."""
+    """kind = "effect" always removes entries not covered by a current
+    item's `find` or by `ignore`, the same as kind = "unordered"; the
+    declared item's id for the sweep is resolved by re-`find`ing after
+    `create` runs, since `create` here isn't a plain `add`."""
     ros.ssh_cmd(
         f'{ADDRESS_LIST} add address=10.10.10.51 list="routnix-test-effect-prune" '
         f'comment="routnix-test-effect-prune-keep"'

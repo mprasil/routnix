@@ -1,5 +1,4 @@
-# kind = "unordered" with `prune = true` and `ignore`. Mirrors the
-# "ordered_ignore" case but for the optional-pruning kind:
+# kind = "unordered" with `ignore`. Mirrors the "ordered_ignore" case:
 # routeros_test.py's "unordered_prune" subtest manually creates a
 # "routnix-test-prune-keep"-commented entry (matched by `ignore`) and a
 # "routnix-test-prune-manual"-commented one (not matched) before
@@ -7,7 +6,6 @@
 {
   routeros.config."/ip firewall address-list" = {
     kind = "unordered";
-    prune = true;
     ignore = [{comment = "routnix-test-prune-keep";}];
     items = [
       {

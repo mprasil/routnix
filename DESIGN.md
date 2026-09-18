@@ -162,11 +162,11 @@ a meaningful decision rather than something safe to fall back on:
   two declared items doesn't survive reapplying; it gets pushed out of
   the gap.
 
-  Unlike `"unordered"`, `prune` (see below) isn't optional here: since
-  identity is the *whole* item, any field edit makes the previous
+  Since identity is the *whole* item, any field edit makes the previous
   version of that item stop matching, leaving it behind as an unmanaged
   duplicate once the edited item is re-added — routnix always sweeps up
-  anything not in `$managed` or `ignore` to avoid accumulating these.
+  anything not in `$managed` or `ignore` to avoid accumulating these,
+  same as the other two table kinds below.
 
 - **`"unordered"`** — presence, not position, matters (routes,
   address-lists, VLANs). Each item is only `add`-ed if it doesn't already
@@ -192,21 +192,19 @@ a meaningful decision rather than something safe to fall back on:
   text) defaults to a plain `add` of the item's own fields, which is
   normally all this kind needs.
 
-  Optionally, `prune = true` removes existing entries this path doesn't
-  currently declare. Each declared item's id is resolved via `find` (if
-  it already exists) or `add` (if it doesn't) and recorded in a per-path
+  Existing entries this path doesn't currently declare are always
+  removed. Each declared item's id is resolved via `find` (if it
+  already exists) or `add` (if it doesn't) and recorded in a per-path
   list; `ignore` (a list of field predicates, OR'd together) is resolved
-  to ids the same way, for entries managed by hand or by another tool. A
-  `foreach` over the path's existing entries at apply time (Nix has no
-  visibility into router state at eval time) then removes anything whose
-  id is in neither list. Off by default, since removing entries is
-  destructive; `kind = "ordered"` (see above) uses this same mechanism
-  unconditionally instead, regardless of this option's value; `kind =
-  "effect"` (below) supports it too, with a different id-resolution step.
-  Setting `prune` on `"settings"` is an error. This only approximates
-  ownership (see "Ownership and identity" below) — an entry that happens
-  to match neither `ignore` nor any current `find` is removed even if
-  routnix never created it.
+  to ids the same way, for entries managed by hand or by another tool —
+  the escape hatch for anything that shouldn't be swept. A `foreach`
+  over the path's existing entries at apply time (Nix has no visibility
+  into router state at eval time) then removes anything whose id is in
+  neither list. `kind = "ordered"` (see above) uses this same mechanism;
+  `kind = "effect"` (below) supports it too, with a different
+  id-resolution step. This only approximates ownership (see "Ownership
+  and identity" below) — an entry that happens to match neither `ignore`
+  nor any current `find` is removed even if routnix never created it.
 
 - **`"settings"`** — a non-table, singleton config object (e.g.
   `/ip dhcp-server config`). `settings` (a single `attrsOf itemValueType`,
@@ -239,10 +237,11 @@ a meaningful decision rather than something safe to fall back on:
   context switch — routnix doesn't need its own path-tracking mechanism
   for this.
 
-  Also supports `prune`/`ignore`, same semantics as `"unordered"` above.
-  Id resolution differs from `"unordered"`, though: that kind's `create`
-  defaults to a plain `add`, whose return value is captured directly as
-  the id, but `"effect"`'s `create` can run arbitrary commands with no
+  Also always prunes, with `ignore` as the same escape hatch, same
+  semantics as `"unordered"` above. Id resolution differs from
+  `"unordered"`, though: that kind's `create` defaults to a plain `add`,
+  whose return value is captured directly as the id, but `"effect"`'s
+  `create` can run arbitrary commands with no
   such guarantee (`import`, in the example above, doesn't hand back an
   id the way `add` does). Instead, once `create` has run, `find` is
   re-resolved to pick up the id -- erroring out if that still finds
@@ -285,70 +284,22 @@ garbage output (verified against a deliberately cyclic example).
 
 For each path in dependency order, rendering branches on `kind`:
 
-- `"ordered"`: emit `<path>` then:
-  - the same ignore-resolution + `$managed` setup described below for
-    `kind = "unordered"` with `prune = true` — always emitted here,
-    since pruning isn't optional for this kind;
-  - per item, the same per-item resolve block described below, except
-    the create step: the first declared item's is
-    `add place-before=([find]->0) k=v ...` (a plain `add` if the path
-    is currently empty), and every later item `i`'s is
-    `add place-before=([get ($managed->(i-1))]->".nextid") k=v ...` —
-    placing a freshly-created item immediately next to its
-    already-resolved predecessor, rather than waiting on the reorder
-    pass below to fix its position;
-  - a final reorder pass over `$managed`, to fix an item whose position
-    drifted since the last apply from something other than routnix (the
-    one case add-time placement above can't cover):
-    ```
-    {
-      :local first ($managed->0)
-      :local firstExisting ([find]->0)
-      :if ($first != $firstExisting) do={ move $first destination=$firstExisting }
-      :if ([:len $managed] > 1) do={
-        :local prev $first
-        :for i from=1 to=([:len $managed] - 1) do={
-          :local cur ($managed->$i)
-          :local dest ([get $prev]->".nextid")
-          :if ($cur != $dest) do={ move $cur destination=$dest }
-          :set prev $cur
-        }
-      }
-    }
-    ```
-    `.nextid` (a RouterOS-internal per-entry property: the id of the
-    entry immediately following it, or a sentinel value when it's last
-    — which `move`/`add`'s `destination`/`place-before` both accept
-    directly, moving/placing at the end) is what lets both this pass
-    and the add-time placement above use a single lookup per item
-    instead of a forward search over every later item;
-  - the same prune sweep described below.
-- `"unordered"` / `"effect"`: emit `<path>` then, per item, a guard block:
-  ```
-  :if ([<path> print count-only where k=v ...] = 0) do={
-    <create item's text, indented>
-  }
-  ```
-  built from `find item` (the query) and `create item` (the body). Uses
-  `print count-only where ...` (a plain number) rather than
-  `find where ...` (an id-or-empty-string) to check existence, since it
-  sidesteps how `find` behaves when a query matches more than one entry.
-  `kind = "unordered"`/`"effect"` with `prune = true` uses a different,
-  id-tracking block instead of this guard -- see below.
 - `"settings"`: emit `<path>` then a single `set k=v k=v ...` line built
   from the `settings` attrset.
+- `"ordered"` / `"unordered"` / `"effect"`: emit `<path>`, then the
+  ignore-resolution + `$managed` setup, per-item resolve block, and
+  prune sweep described below.
 
-For `kind = "unordered"`/`"effect"` with `prune = true`, and always for
-`kind = "ordered"`, `ignore` is resolved to ids first, before any item is
-processed, once per path:
+For all three of these kinds, `ignore` is resolved to ids first, before
+any item is processed, once per path:
 ```
 :local ignore ({})
 :set ignore ($ignore, [<path> find where k=v ...])   -- one per `ignore` predicate
 ```
 Then each item's id is resolved and recorded in a per-path `$managed`
-list instead of using the guard block above, so the sweep that follows
-doesn't have to re-derive "is this entry one of ours" from `find` a
-second time:
+list, so the sweep that follows doesn't have to re-derive "is this entry
+one of ours" from `find` a second time. For `"unordered"`/`"effect"`, in
+a fresh scope per item so `$item` doesn't collide across items:
 ```
 :local managed ({})
 {
@@ -360,16 +311,47 @@ second time:
   :set managed ($managed, $item)
 }
 ```
-one such block per item, in a fresh scope so `$item` doesn't collide
-across items. A `find` match that's actually one of the ids already in
-`$ignore` is treated the same as no match at all, so declaring an item
-never silently "adopts" an entry the caller asked to leave alone -- a new
-one is `add`-ed instead, even though that means two entries can end up
+A `find` match that's actually one of the ids already in `$ignore` is
+treated the same as no match at all, so declaring an item never silently
+"adopts" an entry the caller asked to leave alone -- a new one is
+`add`-ed instead, even though that means two entries can end up
 satisfying the same `find` query (the ignored one, and routnix's own).
-`create`'s result is captured directly as the id -- a query that matched
-nothing (or only an ignored entry) before creating exactly one new entry
-can't turn up more than one match afterwards, so only the lookup *before*
-creating needs the ambiguity check.
+For `"unordered"`, `create`'s result is captured directly as the id --
+a query that matched nothing (or only an ignored entry) before creating
+exactly one new entry can't turn up more than one match afterwards, so
+only the lookup *before* creating needs the ambiguity check.
+
+For `"ordered"`, the create step differs: the first declared item's is
+`add place-before=([find]->0) k=v ...` (a plain `add` if the path is
+currently empty), and every later item `i`'s is
+`add place-before=([get ($managed->(i-1))]->".nextid") k=v ...` —
+placing a freshly-created item immediately next to its already-resolved
+predecessor, rather than waiting on a reorder pass to fix its position.
+A final reorder pass over `$managed` then fixes an item whose position
+drifted since the last apply from something other than routnix (the one
+case add-time placement can't cover):
+```
+{
+  :local first ($managed->0)
+  :local firstExisting ([find]->0)
+  :if ($first != $firstExisting) do={ move $first destination=$firstExisting }
+  :if ([:len $managed] > 1) do={
+    :local prev $first
+    :for i from=1 to=([:len $managed] - 1) do={
+      :local cur ($managed->$i)
+      :local dest ([get $prev]->".nextid")
+      :if ($cur != $dest) do={ move $cur destination=$dest }
+      :set prev $cur
+    }
+  }
+}
+```
+`.nextid` (a RouterOS-internal per-entry property: the id of the entry
+immediately following it, or a sentinel value when it's last — which
+`move`/`add`'s `destination`/`place-before` both accept directly,
+moving/placing at the end) is what lets both this pass and the add-time
+placement above use a single lookup per item instead of a forward search
+over every later item.
 
 For `kind = "effect"`, `create`'s text can't be relied on to evaluate to
 the new entry's id the way a plain `add` can, so it runs as statements
@@ -398,8 +380,8 @@ entry, rather than re-testing every entry against every current item's
 }
 ```
 
-Entries that render to nothing (empty `items`/`settings`, and no
-`prune`) are skipped entirely. Scalar value rendering rules (shared by
+Entries that render to nothing (empty `items`/`settings`) are skipped
+entirely. Scalar value rendering rules (shared by
 all of the above, and by `find`'s query and `create`'s default body):
 
 - `bool` → `yes` / `no`
@@ -445,9 +427,9 @@ text for each `kind`'s happy path (including `deriveFind`'s `!k` rendering
 for a field only some items in a list set, and `before`/`after` ordering
 between whole paths), and that the documented error cases actually throw
 (duplicate `find`/derived-identity within one path's `items`, `find`
-missing on `kind = "effect"`, `prune = true` on `kind = "settings"` or
-`"effect"`, and a dependency cycle). Tests are grouped by topic into one
-file per sibling in `lib/tests/`; `lib/tests/default.nix` holds the shared
+missing on `kind = "effect"`, and a dependency cycle). Tests are grouped
+by topic into one file per sibling in `lib/tests/`; `lib/tests/default.nix`
+holds the shared
 test helpers, auto-discovers and merges every sibling file's tests via
 `builtins.readDir`, and runs them through `lib.runTests` -- adding a new
 file to the directory is enough to have its tests picked up, nothing else
@@ -650,27 +632,27 @@ waiting on this — it matches on value alone, same as
 `"unordered"`/`"effect"`, so a coincidentally-matching foreign entry
 could be misidentified as a declared item's position anchor and moved.
 This is accepted for now as the same adoption risk already noted above,
-just applied to positioning instead of update/prune — not solved by a
-tag-based mechanism, if one lands later. Since pruning is mandatory for
-this kind (see "Resource kinds" above), the same risk also applies to
+just applied to positioning instead of update/removal — not solved by a
+tag-based mechanism, if one lands later. Since pruning applies to this
+kind too (see "Resource kinds" above), the same risk also applies to
 removal here, exactly as it already does for `"unordered"`'s and
-`"effect"`'s optional `prune` below.
+`"effect"`'s pruning below.
 
-**Partially settled and implemented** for `kind = "unordered"` (optional),
-`kind = "effect"` (optional), and `kind = "ordered"` (mandatory):
-stale-entry cleanup via
-`prune`/`ignore` (see "Resource kinds" above) — but as an approximation
-of ownership, not the tag-based mechanism discussed above. `prune`
-removes anything whose id isn't recorded as managed (resolved via a
-current item's identity -- derived for `"unordered"`/`"ordered"`,
-explicit `find` for `"effect"`) or covered by `ignore`, with no notion
-of "entries we created" distinct from "entries that happen to match" —
-so it inherits the same adoption risk noted above, applied to deletion
-instead of update: an entry `routnix` never created can still be pruned
-if it isn't declared and isn't explicitly `ignore`d. A tag-based
-ownership mechanism, if it lands later, would let pruning (and
-adoption-avoidance generally) be precise instead of relying on the
-caller's `ignore` list to enumerate every un-owned entry by hand.
+**Partially settled and implemented** for `kind = "unordered"`,
+`kind = "effect"`, and `kind = "ordered"` (all mandatory): stale-entry
+cleanup via pruning, with `ignore` (see "Resource kinds" above) as the
+only escape hatch — but as an approximation of ownership, not the
+tag-based mechanism discussed above. Pruning removes anything whose id
+isn't recorded as managed (resolved via a current item's identity --
+derived for `"unordered"`/`"ordered"`, explicit `find` for `"effect"`)
+or covered by `ignore`, with no notion of "entries we created" distinct
+from "entries that happen to match" — so it inherits the same adoption
+risk noted above, applied to deletion instead of update: an entry
+`routnix` never created can still be pruned if it isn't declared and
+isn't explicitly `ignore`d. A tag-based ownership mechanism, if it lands
+later, would let pruning (and adoption-avoidance generally) be precise
+instead of relying on the caller's `ignore` list to enumerate every
+un-owned entry by hand.
 
 ### High-level modules over the low-level DSL
 

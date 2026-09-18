@@ -1,7 +1,6 @@
 {
   routeros.config."/ip firewall address-list" = {
     kind = "unordered";
-    prune = true;
     ignore = [
       {
         comment = "nomanage";

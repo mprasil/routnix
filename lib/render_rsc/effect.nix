@@ -1,7 +1,6 @@
 {lib}: let
-  inherit (lib) concatStringsSep filter;
+  inherit (lib) concatStringsSep;
   inherit (import ./common.nix {inherit lib;}) renderQuery indent;
-  inherit (import ./item_creation.nix {inherit lib;}) renderGuardedItem;
 
   # Resolves one item's id -- running `create`'s (arbitrary) commands if
   # `find` matches nothing (or only an `ignore`d entry), then re-`find`ing
@@ -36,9 +35,8 @@
       :if ([:find ($managed,$ignore) $i -1] < 0) do={ ${path} remove $i }
     }'';
 
-  # Without `prune`: a plain add-guard per item. With `prune`: resolves
-  # `ignore` to ids first, resolves each item via `renderManagedItem`,
-  # then sweeps unmanaged entries via `renderPrune`.
+  # Resolves `ignore` to ids first, resolves each item via
+  # `renderManagedItem`, then sweeps unmanaged entries via `renderPrune`.
   renderEffect = path: find: entry: let
     ignoreSetup = concatStringsSep "\n" (
       [":local ignore ({})"]
@@ -47,31 +45,15 @@
       )
       entry.ignore
     );
-    addChunk =
-      if entry.prune
-      then
-        concatStringsSep "\n" (
-          [
-            ignoreSetup
-            ":local managed ({})"
-          ]
-          ++ map (renderManagedItem path find entry.create) entry.items
-        )
-      else if entry.items == []
-      then null
-      else concatStringsSep "\n" (map (renderGuardedItem path find entry.create) entry.items);
-    pruneChunk =
-      if entry.prune
-      then renderPrune path
-      else null;
-    body = filter (c: c != null) [
-      addChunk
-      pruneChunk
-    ];
   in
-    if body == []
+    if entry.items == []
     then null
-    else concatStringsSep "\n" ([path] ++ body);
+    else
+      concatStringsSep "\n" (
+        [path ignoreSetup ":local managed ({})"]
+        ++ map (renderManagedItem path find entry.create) entry.items
+        ++ [(renderPrune path)]
+      );
 in {
   inherit renderEffect;
 }

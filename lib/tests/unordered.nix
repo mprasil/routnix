@@ -15,26 +15,10 @@
     expected = "\n";
   };
 
-  testUnorderedWithoutPruneRendersPlainGuard = {
+  testUnorderedUsesIdTrackingAndSweep = {
     expr = rsc {
       routeros.config."/x" = {
         kind = "unordered";
-        items = [{a = "1";}];
-      };
-    };
-    expected = ''
-      /x
-      :if ([/x print count-only where a="1"] = 0) do={
-        add a="1"
-      }
-    ''; # trailing newline from renderConfig
-  };
-
-  testUnorderedWithPruneUsesIdTrackingAndSweep = {
-    expr = rsc {
-      routeros.config."/x" = {
-        kind = "unordered";
-        prune = true;
         ignore = [{c = "keep";}];
         items = [{a = "1";}];
       };
@@ -60,13 +44,16 @@
     '';
   };
 
-  # Same bug as testOrderedDerivedFindIncludesIgnoreOnlyField, for
-  # `kind = "unordered"` with `prune = true`.
-  testUnorderedPruneDerivedFindIncludesIgnoreOnlyField = {
+  # Regression test: a field only `ignore` sets (never any declared
+  # item) must still show up in the derived `find`'s null-padding, or
+  # an `ignore`d entry that also happens to match a declared item's
+  # other fields could collide with it -- see
+  # testOrderedDerivedFindIncludesIgnoreOnlyField for the `kind =
+  # "ordered"` equivalent.
+  testUnorderedDerivedFindIncludesIgnoreOnlyField = {
     expr = rsc {
       routeros.config."/x" = {
         kind = "unordered";
-        prune = true;
         ignore = [{c = "keep";}];
         items = [{a = "1";}];
       };
@@ -97,11 +84,10 @@
   # overwritten) -- with two predicates on different fields, both
   # fields must show up in the derived `find`'s null-padding, and
   # there must be one accumulating `:set ignore` line per predicate.
-  testUnorderedPruneAccumulatesMultipleIgnorePredicates = {
+  testUnorderedAccumulatesMultipleIgnorePredicates = {
     expr = rsc {
       routeros.config."/x" = {
         kind = "unordered";
-        prune = true;
         ignore = [{c = "keep";} {d = "also-keep";}];
         items = [{a = "1";}];
       };
@@ -124,26 +110,6 @@
       }
       :foreach i in=[/x find] do={
         :if ([:find ($managed,$ignore) $i -1] < 0) do={ /x remove $i }
-      }
-    '';
-  };
-
-  # Without `prune = true`, `ignore` is already inert for
-  # `kind = "unordered"` (not wired into `$ignore` or a prune sweep at
-  # all -- see renderUnordered) -- derived `find` must stay as-is,
-  # not fold in `ignore`'s fields either.
-  testUnorderedWithoutPruneDerivedFindIgnoresIgnoreField = {
-    expr = rsc {
-      routeros.config."/x" = {
-        kind = "unordered";
-        ignore = [{c = "keep";}];
-        items = [{a = "1";}];
-      };
-    };
-    expected = ''
-      /x
-      :if ([/x print count-only where a="1"] = 0) do={
-        add a="1"
       }
     '';
   };

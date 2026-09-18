@@ -24,14 +24,4 @@
     };
     expected = "/system identity\nset name=\"r1\"\n";
   };
-
-  testPruneOnSettingsThrows = {
-    expr = throws (rsc {
-      routeros.config."/x" = {
-        kind = "settings";
-        prune = true;
-      };
-    });
-    expected = true;
-  };
 }

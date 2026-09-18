@@ -33,6 +33,8 @@
           - `"unordered"` (e.g. routes, address-lists, VLANs): only
             presence matters, so an item is `add`-ed only if it doesn't
             already match an existing entry, by its own declared fields.
+            Existing entries that are no longer declared, and not
+            covered by `ignore`, are always removed.
           - `"settings"` (e.g. `/ip dhcp-server config`): `settings`
             fields are applied as a single `set`.
           - `"effect"` (e.g. `/user ssh-keys`): like `"unordered"`, but
@@ -92,9 +94,8 @@
           path (e.g. `/file add ...`) without changing that context for
           subsequent lines. Ignored for other kinds.
 
-          For `kind = "effect"` with `prune = true`, running these commands
-          must leave behind an entry `find` matches -- applying errors
-          otherwise.
+          For `kind = "effect"`, running these commands must leave
+          behind an entry `find` matches -- applying errors otherwise.
         '';
       };
 
@@ -107,27 +108,15 @@
         '';
       };
 
-      prune = mkOption {
-        type = types.bool;
-        default = false;
-        description = ''
-          For `kind = "unordered"` or `"effect"`: removes existing entries
-          not matched by `find` for any current item and not covered by
-          `ignore`. Off by default. For `kind = "ordered"`, entries are
-          always pruned this way regardless of this option's value. Only
-          valid for `kind = "unordered"`, `"ordered"`, or `"effect"`.
-        '';
-      };
-
       ignore = mkOption {
         type = types.listOf (types.attrsOf itemValueType);
         default = [];
         description = ''
-          For `kind = "unordered"` or `"effect"` with `prune = true`, or
-          `kind = "ordered"` (always pruned): entries matching any of
-          these field predicates are left alone by pruning, even if not
-          declared in `items` -- for entries managed by hand or by
-          another tool.
+          For `kind = "unordered"`, `"ordered"`, or `"effect"` (all
+          three always remove existing entries no longer declared):
+          entries matching any of these field predicates are left alone,
+          even if not declared in `items` -- for entries managed by hand
+          or by another tool. Ignored for `"settings"`.
         '';
       };
     };
