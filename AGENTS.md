@@ -29,16 +29,18 @@ lib/extended.nix         -- nixpkgs lib extended with routnix's own
                             functions under lib.routnix, for modules to use
 lib/default.nix          -- evalConfig { modules } entry point
 lib/tests/               -- pure-Nix unit tests for library nix files split by topic
+modules/tests/           -- pure-Nix unit tests for modules/*.nix split by module
 examples/                -- example configs
 checks/configs/          -- one focused config per feature, used by the
                             RouterOS CHR integration check
-checks/                  -- RouterOS CHR integration check and the pure-Nix unit test check
+checks/                  -- RouterOS CHR integration check and the pure-Nix unit test checks
 images.nix               -- RouterOS CHR images (one per entry in ros_versions.nix)
 vms.nix                  -- runnable QEMU VM scripts (one per entry in ros_versions.nix)
 ros_versions.nix         -- RouterOS CHR versions/hashes tested against
 flake.nix                -- packages.<system>.example, .ros-image-<alias>, .ros-vm-<alias>
                             (one pair per ros_versions.nix entry),
                             checks.<system>.render-unit-tests,
+                            checks.<system>.module-unit-tests,
                             checks.<system>.routeros-<alias> (one per ros_versions.nix entry)
 ```
 
@@ -81,4 +83,6 @@ history belong in `DESIGN.md`, not in `.nix` files.
   imports the `.rsc` files rendered from `checks/configs/*.nix`, and checks
   the results over SSH. Uses KVM when available, falls back to TCG. Requires
   network access to fetch the CHR image. `nix flake check` runs it for every
-  version.
+  version. Each alias's `.rsc` is rendered with `device.platform` set to
+  match that alias's RouterOS major version, so version-dependent modules
+  exercise the right branch instead of always defaulting to `routeros_v7`.

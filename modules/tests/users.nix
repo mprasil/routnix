@@ -12,6 +12,8 @@
   userIgnoreNames = entry: map (i: i.name) entry.ignore;
   sshKeyItemUsers = entry: map (i: i.user) entry.items;
   sshKeyIgnoreUsers = entry: map (i: i.user) entry.ignore;
+
+  inherit (lib) hasInfix;
 in {
   testUsersDisabledByDefaultDeclaresNothing = {
     expr = evalConfig {users.users.alice = {};};
@@ -124,5 +126,133 @@ in {
       users = [];
       ignored = [];
     };
+  };
+
+  # `/user ssh-keys`'s `create` runs `import ... user="..."`, which
+  # needs that account to already exist -- `/user` must always render
+  # first, declared explicitly rather than relying on incidental
+  # ordering between the two paths.
+  testSshKeysPathDependsOnUserPath = {
+    expr = (evalConfig {users.enable = true;})."/user ssh-keys".after;
+    expected = ["/user"];
+  };
+
+  # `/user add` requires an explicit `group` argument on real RouterOS
+  # (a missing one fails the whole `/import`) -- regression-anchored
+  # here since that's the kind of bug pure-Nix render tests can't catch
+  # on their own.
+  testNewUserDefaultsToFullGroup = {
+    expr = map (i: i.group) (evalConfig {
+      users.enable = true;
+      users.users.alice = {};
+    })."/user".items;
+    expected = ["full"];
+  };
+
+  testNewUserGroupIsConfigurable = {
+    expr = map (i: i.group) (evalConfig {
+      users.enable = true;
+      users.users.alice = {group = "read";};
+    })."/user".items;
+    expected = ["read"];
+  };
+
+  testNewUserCreateIncludesGroup = {
+    expr = hasInfix "group=\"read\"" ((evalConfig {
+        users.enable = true;
+        users.users.alice = {};
+      })."/user".create {
+        name = "alice";
+        group = "read";
+      });
+    expected = true;
+  };
+
+  # -- per-`device.platform` decisions -----------------------------
+  #
+  # `lib/tests/per_platform.nix` covers `perPlatform` itself; these
+  # confirm modules/users.nix picks the right branch at each of its two
+  # call sites. Whether the resulting `.rsc` text is actually valid on
+  # real hardware is the integration check's job (an unavailable
+  # command just fails `/import` there), not this one's.
+
+  testNewUserPasswordUsesRndstrOnV7 = {
+    expr = hasInfix "rndstr" ((evalConfig {
+        device.platform = "routeros_v7";
+        users.enable = true;
+        users.users.alice = {};
+      })."/user".create {
+        name = "alice";
+        group = "full";
+      });
+    expected = true;
+  };
+
+  testNewUserPasswordUsesCertTrickOnV6 = {
+    expr = hasInfix "certificate" ((evalConfig {
+        device.platform = "routeros_v6";
+        users.enable = true;
+        users.users.alice = {};
+      })."/user".create {
+        name = "alice";
+        group = "full";
+      });
+    expected = true;
+  };
+
+  testSshKeysFindUsesInfoFieldOnV7 = {
+    expr = (evalConfig {
+      device.platform = "routeros_v7";
+      users.enable = true;
+      users.users.alice.sshPubKeys = ["ssh-rsa AAAAB3NzaC1yc2E foo"];
+    })."/user ssh-keys".find {
+      user = "alice";
+      hash = "abc123456789";
+    };
+    expected = {
+      user = "alice";
+      info = "abc123456789";
+    };
+  };
+
+  testSshKeysFindUsesKeyOwnerFieldOnV6 = {
+    expr = (evalConfig {
+      device.platform = "routeros_v6";
+      users.enable = true;
+      users.users.alice.sshPubKeys = ["ssh-rsa AAAAB3NzaC1yc2E foo"];
+    })."/user ssh-keys".find {
+      user = "alice";
+      hash = "abc123456789";
+    };
+    expected = {
+      user = "alice";
+      "key-owner" = "abc123456789";
+    };
+  };
+
+  testSshKeysCreateUsesFileAddOnV7 = {
+    expr = hasInfix "/file add" ((evalConfig {
+        device.platform = "routeros_v7";
+        users.enable = true;
+        users.users.alice.sshPubKeys = ["ssh-rsa AAAAB3NzaC1yc2E foo"];
+      })."/user ssh-keys".create {
+        user = "alice";
+        hash = "abc123456789";
+        key = "ssh-rsa AAAAB3NzaC1yc2E foo";
+      });
+    expected = true;
+  };
+
+  testSshKeysCreateUsesExecuteTrickOnV6 = {
+    expr = hasInfix ":execute" ((evalConfig {
+        device.platform = "routeros_v6";
+        users.enable = true;
+        users.users.alice.sshPubKeys = ["ssh-rsa AAAAB3NzaC1yc2E foo"];
+      })."/user ssh-keys".create {
+        user = "alice";
+        hash = "abc123456789";
+        key = "ssh-rsa AAAAB3NzaC1yc2E foo";
+      });
+    expected = true;
   };
 }

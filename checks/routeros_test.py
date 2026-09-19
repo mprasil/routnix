@@ -147,6 +147,8 @@ def import_config(ros: RouterOsMachine, rsc_dir: Path, config_name: str) -> str:
 
 FILTER = "/ip firewall filter"
 ADDRESS_LIST = "/ip firewall address-list"
+USER = "/user"
+USER_SSH_KEYS = "/user ssh-keys"
 
 
 def test_ordered_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
@@ -438,9 +440,107 @@ def test_effect_prune_empty(ros: RouterOsMachine, rsc_dir: Path) -> None:
     assert_eq(count_only(ros, ADDRESS_LIST), 0, context=f"{ADDRESS_LIST} count after applying empty effect items")
 
 
-# Ordering matters within the "ordered_*" group -- each builds on the
-# router state the previous one left behind (see their docstrings).
-# Everything else is independent and self-cleaning.
+# The "users_*" group shares state across its subtests the same way the
+# "ordered_*" group does: each relies on the router state the previous
+# one left behind. Every config in this group declares `admin` with
+# `create = false`, since it's the account routeros_test.py itself
+# connects over SSH as -- if `/user`'s mandatory prune sweep ever
+# removed it, every subsequent SSH command (in this group and beyond)
+# would fail, which itself would surface a regression here loudly.
+
+
+def test_users_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """The `users` module: a declared user is added; `admin` (the
+    test's own account) is untouched."""
+    import_config(ros, rsc_dir, "users_basic")
+    out = ros.ssh_cmd(f"{USER} print")
+    assert_contains(out, "admin", "testuser", context=f"{USER} print")
+    assert_eq(count_only(ros, USER), 2, context=f"{USER} count after users_basic")
+
+
+def test_users_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Reapplying must not duplicate the declared user or touch admin."""
+    import_config(ros, rsc_dir, "users_basic")
+    assert_eq(count_only(ros, USER), 2, context=f"{USER} count after reapplying users_basic")
+
+
+def test_users_prune(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """`/user`'s mandatory prune sweep removes an undeclared account
+    while leaving `admin` (`create = false`, `ignore`d) and the
+    declared `testuser` alone."""
+    ros.ssh_cmd(f'{USER} add name=routnix-test-users-manual group=full password=""')
+
+    import_config(ros, rsc_dir, "users_basic")
+
+    out = ros.ssh_cmd(f"{USER} print")
+    assert_contains(out, "admin", "testuser", context=f"{USER} print after prune")
+    assert_not_contains(out, "routnix-test-users-manual", context=f"{USER} print after prune")
+    assert_eq(count_only(ros, USER), 2, context=f"{USER} count after prune")
+
+    ros.ssh_cmd(f'{USER} remove [find where name="testuser"]')
+
+
+def test_users_ssh_keys_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """A declared user's `sshPubKeys` are added; `admin`'s keys (left
+    at the default `null`) are untouched."""
+    import_config(ros, rsc_dir, "users_ssh_keys_basic")
+    assert_eq(
+        count_only(ros, USER_SSH_KEYS, 'user="keyuser"'), 1,
+        context=f"{USER_SSH_KEYS} count for keyuser",
+    )
+    assert_eq(
+        count_only(ros, USER_SSH_KEYS, 'user="admin"'), 0,
+        context=f"{USER_SSH_KEYS} count for admin (untouched)",
+    )
+
+
+def test_users_ssh_keys_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Reapplying must not rerun `create` (or duplicate the key) for a
+    user `find` already matches."""
+    import_config(ros, rsc_dir, "users_ssh_keys_basic")
+    assert_eq(
+        count_only(ros, USER_SSH_KEYS, 'user="keyuser"'), 1,
+        context=f"{USER_SSH_KEYS} count for keyuser (reapply)",
+    )
+
+
+def test_users_ssh_keys_wipe(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Regression: `sshPubKeys = [ ]` is a real declaration ("this user
+    should have no keys"), distinct from `null` ("don't touch this
+    user's keys") -- it must fully manage (and here, wipe) keyuser's
+    keys, not leave the previously-added one in place."""
+    import_config(ros, rsc_dir, "users_ssh_keys_empty")
+    assert_eq(
+        count_only(ros, USER_SSH_KEYS, 'user="keyuser"'), 0,
+        context=f"{USER_SSH_KEYS} count for keyuser after wiping",
+    )
+
+    ros.ssh_cmd(f'{USER} remove [find where name="keyuser"]')
+
+
+def test_users_existing_user_keys(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """`create` only controls account creation: a `create = false`
+    user's declared `sshPubKeys` are still fully managed, even for an
+    account routnix itself never created. Deliberately not `admin`:
+    attaching a key to it would make RouterOS require key-based auth
+    for that account, breaking the test's own password-based SSH
+    access for every subtest after this one."""
+    ros.ssh_cmd('/user add name=routnix-test-existinguser group=full password=""')
+
+    import_config(ros, rsc_dir, "users_existing_user_keys")
+
+    assert_eq(
+        count_only(ros, USER_SSH_KEYS, 'user="routnix-test-existinguser"'), 1,
+        context=f"{USER_SSH_KEYS} count for routnix-test-existinguser",
+    )
+    assert_eq(count_only(ros, USER), 2, context=f"{USER} count (admin + existinguser)")
+
+    ros.ssh_cmd(f'{USER} remove [find where name="routnix-test-existinguser"]')
+
+
+# Ordering matters within the "ordered_*" and "users_*" groups -- each
+# builds on the router state the previous one left behind. Everything
+# else is independent and self-cleaning.
 SUBTESTS: list[tuple[str, Callable[[RouterOsMachine, Path], None]]] = [
     ("ordered_add", test_ordered_add),
     ("ordered_idempotent", test_ordered_idempotent),
@@ -460,6 +560,13 @@ SUBTESTS: list[tuple[str, Callable[[RouterOsMachine, Path], None]]] = [
     ("effect_idempotent", test_effect_idempotent),
     ("effect_prune", test_effect_prune),
     ("effect_prune_empty", test_effect_prune_empty),
+    ("users_add", test_users_add),
+    ("users_idempotent", test_users_idempotent),
+    ("users_prune", test_users_prune),
+    ("users_ssh_keys_add", test_users_ssh_keys_add),
+    ("users_ssh_keys_idempotent", test_users_ssh_keys_idempotent),
+    ("users_ssh_keys_wipe", test_users_ssh_keys_wipe),
+    ("users_existing_user_keys", test_users_existing_user_keys),
 ]
 
 

@@ -49,6 +49,13 @@
           Create the user if it does not already exist?
         '';
       };
+      group = mkOption {
+        type = types.str;
+        default = "full";
+        description = ''
+          Permission group for a newly created user.
+        '';
+      };
       password = mkOption {
         type = types.nullOr types.str;
         default = null;
@@ -133,16 +140,17 @@ in {
               routeros_v6 = v6_password_generator;
               routeros_v7 = "[:rndstr length=32 ]";
             };
-      in "add name=\"${item.name}\" password=${passwordArg}";
+      in "add name=\"${item.name}\" group=\"${item.group}\" password=${passwordArg}";
       items =
         mapAttrsToList
         (_: user:
-          {inherit (user) name;}
+          {inherit (user) name group;}
           // optionalAttrs (user.password != null) {inherit (user) password;})
         (filterAttrs (_: user: user.create) cfg);
     };
     routeros.config."/user ssh-keys" = {
       kind = "effect";
+      after = ["/user"];
       find = item: let
         infoFieldName = perPlatform config {
           routeros_v6 = "key-owner";

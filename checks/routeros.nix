@@ -24,8 +24,26 @@
     builtins.filter (lib.hasSuffix ".nix") (builtins.attrNames (builtins.readDir configsDir))
   );
 
+  # `device.platform` (used by e.g. modules/users.nix's `perPlatform`
+  # calls) is resolved from this check's own RouterOS version, so each
+  # alias's .rsc exercises the branch matching the image it's actually
+  # applied to instead of always defaulting to routeros_v7.
+  rosVersions = import ../ros_versions.nix;
+  majorVersion = builtins.head (lib.splitString "." rosVersions.${name}.version);
+  platform =
+    if majorVersion == "6"
+    then "routeros_v6"
+    else if majorVersion == "7"
+    then "routeros_v7"
+    else throw "routnix: unsupported RouterOS major version ${majorVersion} for ${name}";
+
   rscFor = configName: let
-    evaluated = routnixLib.evalConfig {modules = [(configsDir + "/${configName}.nix")];};
+    evaluated = routnixLib.evalConfig {
+      modules = [
+        (configsDir + "/${configName}.nix")
+        {device.platform = platform;}
+      ];
+    };
   in
     pkgs.writeText "routnix-${configName}.rsc" evaluated.rsc;
 

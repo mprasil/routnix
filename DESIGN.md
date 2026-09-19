@@ -60,13 +60,16 @@ lib/extended.nix         -- nixpkgs lib extended with routnix's own
 lib/default.nix          -- glue: evalConfig { modules } -> evaluated config + .rsc
 lib/tests/               -- pure-Nix unit tests for render_rsc.nix/toposort.nix,
                             split by topic, auto-loaded from lib/tests/default.nix
+modules/tests/           -- pure-Nix unit tests for modules/*.nix, split by
+                            module, auto-loaded the same way as lib/tests/
 examples/basic.nix       -- example config
 examples/cycle.nix       -- example that intentionally triggers a cycle error
 checks/configs/          -- one focused config per feature, used by the
                             RouterOS CHR integration check below
-checks/                  -- RouterOS CHR integration check and the pure-Nix unit test check
+checks/                  -- RouterOS CHR integration check and the pure-Nix unit test checks
 flake.nix                -- exposes packages.<system>.example (built .rsc),
-                            checks.<system>.render-unit-tests, and
+                            checks.<system>.render-unit-tests,
+                            checks.<system>.module-unit-tests, and
                             checks.<system>.routeros-<alias>, one per
                             RouterOS version in ros_versions.nix
 ```
@@ -438,6 +441,19 @@ to wire up. `checks/render-unit-tests.nix` forces evaluation of
 expected-vs-actual values if any of them don't pass; it's exposed as
 `checks.<system>.render-unit-tests` for every system in `flake.nix`.
 
+### Module unit tests (`modules/tests/`)
+
+`modules/tests/` exercises `modules/*.nix` directly, one file per module,
+auto-discovered and run the same way as `lib/tests/` (its own
+`modules/tests/default.nix` holds the shared helpers and `lib.runTests`
+wiring). Unlike `lib/tests/`, these assert on the compiled
+`routeros.config` attrset returned by `evalConfig` rather than on rendered
+`.rsc` text -- what a module's options compile down to, decoupled from how
+`lib/render_rsc.nix` renders that attrset, which `lib/tests/` already
+covers on its own. `checks/module-unit-tests.nix` forces evaluation of
+`modules/tests/` the same way `checks/render-unit-tests.nix` does for
+`lib/tests/`, exposed as `checks.<system>.module-unit-tests`.
+
 ### Integration check (`checks/`)
 
 `ros_versions.nix` lists the RouterOS CHR versions tested against, keyed by
@@ -452,7 +468,9 @@ sequence of subtests against it (`checks/routeros_test.py`); each subtest
 copies the `.rsc` rendered from one `checks/configs/*.nix` file to it over
 scp, runs `/import`, and inspects the result over SSH. It uses KVM when
 available and falls back to TCG otherwise; it needs network access to fetch
-the image.
+the image. Each alias's `.rsc` files are rendered with `device.platform`
+set to that alias's RouterOS major version, so `perPlatform`-dependent
+modules exercise the branch matching the image actually being tested.
 
 `checks/routeros_machine.py` wraps nixpkgs' `QemuMachine` for QEMU
 lifecycle and serial-output capture only — the NixOS backdoor shell
@@ -467,11 +485,15 @@ Each `checks/configs/*.nix` file isolates one behavior (e.g.
 `checks/routeros_test.py` runs one subtest per file so a failure names the
 specific feature that broke rather than "the result isn't as expected".
 Most subtests clean up whatever path they touched afterward (`remove
-[find ...]`); the `"ordered"`-kind group is the exception and
-deliberately builds on the state the previous one left behind
+[find ...]`); the `"ordered"`-kind and `users_*` groups are the exception
+and deliberately build on the state the previous one left behind
 (add-in-order, idempotent reapply, drift restoration via `move`, a field
-edit, then `ignore`-guarded pruning) since `kind = "ordered"`'s mandatory
-prune makes each apply a clean slate anyway. All subtests run regardless
+edit, then `ignore`-guarded pruning for `"ordered"`; account/SSH-key
+add, prune, and the `sshPubKeys = null` vs. `[ ]` distinction for
+`users_*`) since both kinds' mandatory prune makes each apply a clean
+slate anyway. Every `users_*` config declares `admin` with
+`create = false`, since it's the account `routeros_test.py` itself
+connects over SSH as. All subtests run regardless
 of earlier failures, and
 `/import`'s own textual output is checked for error-looking text (not
 just its exit code, which RouterOS can report as success even when the
