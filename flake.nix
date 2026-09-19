@@ -42,6 +42,10 @@
         # (lib/tests/): throws (failing the build) if any test in
         # lib/tests/ fails.
         render-unit-tests = pkgs.callPackage ./checks/render-unit-tests.nix {};
+
+        # Pure-Nix unit tests for modules/*.nix (modules/tests/): throws
+        # (failing the build) if any test in modules/tests/ fails.
+        module-unit-tests = pkgs.callPackage ./checks/module-unit-tests.nix {};
       }
       // (lib.mapAttrs' (
           alias: image:

@@ -3,10 +3,25 @@
   config,
   ...
 }: let
-  inherit (lib) mkOption types filterAttrs mapAttrsToList optionalAttrs concatStringsSep attrValues concatMap splitString;
+  inherit (lib) mkOption mkIf types filterAttrs mapAttrsToList optionalAttrs concatStringsSep attrValues concatMap splitString;
   inherit (lib.routnix) perPlatform;
 
   cfg = config.users.users;
+
+  # Users declared with `create = false` are excluded from `/user`'s
+  # `items` (there's nothing to `add` for them), so they need their
+  # own `ignore` entry there to stay exempt from the mandatory prune
+  # sweep -- otherwise declaring any other user would sweep them away.
+  createFalseUsers = attrValues (filterAttrs (_: user: !user.create) cfg);
+
+  # `sshPubKeys = null` (the default) means this user's keys aren't
+  # routnix's concern: excluded from `/user ssh-keys`'s `items` and
+  # `ignore`d instead, so whatever's already there is left alone. A
+  # list -- including `[ ]` -- fully manages that user's keys,
+  # independent of `create`, so managing keys for an existing,
+  # otherwise-unmanaged account is supported.
+  usersManagingSshKeys = filterAttrs (_: user: user.sshPubKeys != null) cfg;
+  usersIgnoringSshKeys = filterAttrs (_: user: user.sshPubKeys == null) cfg;
 
   # authorized_keys-style single line: a key type RouterOS actually
   # supports on the configured platform, a base64 blob, and an optional
@@ -48,10 +63,13 @@
         '';
       };
       sshPubKeys = mkOption {
-        type = types.listOf sshPubKeyType;
-        default = [];
+        type = types.nullOr (types.listOf sshPubKeyType);
+        default = null;
         description = ''
-          List of ssh public keys to set up for user to be able to log in with.
+          SSH public keys this user should have. `null` (default)
+          leaves this user's existing keys untouched; a list --
+          including an empty one -- fully manages them, removing any
+          key not declared here.
         '';
       };
     };
@@ -82,6 +100,17 @@
     parts = splitString " " key;
   in "${builtins.elemAt parts 0} ${builtins.elemAt parts 1} ${sshPubKeyHash key}";
 in {
+  options.users.enable = mkOption {
+    type = types.bool;
+    default = false;
+    description = ''
+      Whether routnix manages the router's user accounts and their SSH
+      keys (`routeros.config."/user"` / `"/user ssh-keys"`). While
+      disabled, `users.users` has no effect and neither path is
+      touched.
+    '';
+  };
+
   options.users.users = mkOption {
     type =
       types.attrsOf (types.submodule
@@ -90,57 +119,61 @@ in {
     description = ''User configuration. '';
   };
 
-  config.routeros.config."/user" = {
-    kind = "effect";
-    find = item: {name = item.name;};
-    create = item: let
-      passwordArg =
-        if item ? password
-        then "\"${item.password}\""
-        else
-          perPlatform config {
-            routeros_v6 = v6_password_generator;
-            routeros_v7 = "[:rndstr length=32 ]";
-          };
-    in "add name=\"${item.name}\" password=${passwordArg}";
-    items =
-      mapAttrsToList
-      (_: user:
-        {inherit (user) name;}
-        // optionalAttrs (user.password != null) {inherit (user) password;})
-      (filterAttrs (_: user: user.create) cfg);
-  };
-  config.routeros.config."/user ssh-keys" = {
-    kind = "effect";
-    find = item: let
-      infoFieldName = perPlatform config {
-        routeros_v6 = "key-owner";
-        routeros_v7 = "info";
-      };
-    in {
-      user = item.user;
-      "${infoFieldName}" = item.hash;
+  config = mkIf config.users.enable {
+    routeros.config."/user" = {
+      kind = "effect";
+      find = item: {name = item.name;};
+      ignore = map (user: {name = user.name;}) createFalseUsers;
+      create = item: let
+        passwordArg =
+          if item ? password
+          then "\"${item.password}\""
+          else
+            perPlatform config {
+              routeros_v6 = v6_password_generator;
+              routeros_v7 = "[:rndstr length=32 ]";
+            };
+      in "add name=\"${item.name}\" password=${passwordArg}";
+      items =
+        mapAttrsToList
+        (_: user:
+          {inherit (user) name;}
+          // optionalAttrs (user.password != null) {inherit (user) password;})
+        (filterAttrs (_: user: user.create) cfg);
     };
-    create = item: let
-      fileName = "routnix-${item.user}-${item.hash}.pub";
-      fileCreationCommand = perPlatform config {
-        routeros_v6 = '':execute ":put \"${sshPubKeyFileContents item.key}\"" file="${fileName}\00"'';
-        routeros_v7 = ''/file add name="${fileName}" contents="${sshPubKeyFileContents item.key}"'';
+    routeros.config."/user ssh-keys" = {
+      kind = "effect";
+      find = item: let
+        infoFieldName = perPlatform config {
+          routeros_v6 = "key-owner";
+          routeros_v7 = "info";
+        };
+      in {
+        user = item.user;
+        "${infoFieldName}" = item.hash;
       };
-    in ''
-      ${fileCreationCommand}
-      import public-key-file="${fileName}" user="${item.user}"
-    '';
-    items =
-      concatMap
-      (user:
-        map
-        (key: {
-          user = user.name;
-          key = key;
-          hash = sshPubKeyHash key;
-        })
-        user.sshPubKeys)
-      (attrValues (filterAttrs (_: user: user.create) cfg));
+      ignore = map (user: {user = user.name;}) (attrValues usersIgnoringSshKeys);
+      create = item: let
+        fileName = "routnix-${item.user}-${item.hash}.pub";
+        fileCreationCommand = perPlatform config {
+          routeros_v6 = '':execute ":put \"${sshPubKeyFileContents item.key}\"" file="${fileName}\00"'';
+          routeros_v7 = ''/file add name="${fileName}" contents="${sshPubKeyFileContents item.key}"'';
+        };
+      in ''
+        ${fileCreationCommand}
+        import public-key-file="${fileName}" user="${item.user}"
+      '';
+      items =
+        concatMap
+        (user:
+          map
+          (key: {
+            user = user.name;
+            key = key;
+            hash = sshPubKeyHash key;
+          })
+          user.sshPubKeys)
+        (attrValues usersManagingSshKeys);
+    };
   };
 }

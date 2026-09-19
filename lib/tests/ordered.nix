@@ -5,14 +5,25 @@
 }: {
   # -- kind = "ordered" -------------------------------------------------
 
-  testOrderedEmptyItemsRendersNothing = {
+  # Pruning is mandatory regardless of how many items are declared, so
+  # an empty `items` list must still emit the prune sweep (and thus
+  # remove anything left over at the path) rather than rendering
+  # nothing at all for it.
+  testOrderedEmptyItemsStillPrunes = {
     expr = rsc {
       routeros.config."/x" = {
         kind = "ordered";
         items = [];
       };
     };
-    expected = "\n";
+    expected = ''
+      /x
+      :local ignore ({})
+      :local managed ({})
+      :foreach i in=[find] do={
+        :if ([:find ($managed,$ignore) $i -1] < 0) do={ remove $i }
+      }
+    '';
   };
 
   # First item places itself at the front of a (possibly non-empty)

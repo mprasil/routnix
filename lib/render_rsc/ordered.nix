@@ -81,10 +81,19 @@ in {
   # in turn (adding missing ones already placed as close to their
   # correct position as possible), fixes up any remaining order drift in
   # a final pass, then always prunes anything left over that isn't
-  # declared or `ignore`d.
+  # declared or `ignore`d. An empty `items` list still emits the
+  # `ignore`-resolution and prune sweep -- pruning is mandatory
+  # regardless of how many items are declared -- just without the
+  # per-item resolve/reorder steps, which have nothing to do.
   renderOrderedItems = path: find: items: ignore:
     if items == []
-    then null
+    then
+      concatStringsSep "\n" [
+        path
+        (renderIgnoreSetup ignore)
+        ":local managed ({})"
+        renderPrune
+      ]
     else
       concatStringsSep "\n" (
         [

@@ -47,6 +47,9 @@
 
   # Resolves `ignore` to ids first, resolves each item via
   # `renderManagedItem`, then sweeps unmanaged entries via `renderPrune`.
+  # Pruning is mandatory regardless of how many items are declared, so
+  # an empty `items` list still emits the `ignore`-resolution and prune
+  # sweep, just without any per-item resolve step.
   renderUnordered = path: find: entry: let
     ignoreSetup = concatStringsSep "\n" (
       [":local ignore ({})"]
@@ -56,14 +59,11 @@
       entry.ignore
     );
   in
-    if entry.items == []
-    then null
-    else
-      concatStringsSep "\n" (
-        [path ignoreSetup ":local managed ({})"]
-        ++ map (renderManagedItem path find entry.create) entry.items
-        ++ [(renderPrune path)]
-      );
+    concatStringsSep "\n" (
+      [path ignoreSetup ":local managed ({})"]
+      ++ map (renderManagedItem path find entry.create) entry.items
+      ++ [(renderPrune path)]
+    );
 in {
   inherit deriveFind renderUnordered;
 }

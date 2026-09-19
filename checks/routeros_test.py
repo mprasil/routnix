@@ -277,6 +277,17 @@ def test_ordered_ignore_overlap(ros: RouterOsMachine, rsc_dir: Path) -> None:
     ros.ssh_cmd(f"{FILTER} remove [find]")
 
 
+def test_ordered_prune_empty(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Regression: kind = "ordered" prunes unconditionally, even with
+    an empty `items` list -- declaring no items for a path must still
+    remove everything already there, not leave the path untouched."""
+    ros.ssh_cmd(f'{FILTER} add chain=input action=accept comment="routnix-test-ordered-empty-manual"')
+
+    import_config(ros, rsc_dir, "ordered_prune_empty")
+
+    assert_eq(count_only(ros, FILTER), 0, context=f"{FILTER} count after applying empty ordered items")
+
+
 def test_unordered_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
     """kind = "unordered": a missing item is added."""
     import_config(ros, rsc_dir, "unordered_basic")
@@ -323,6 +334,21 @@ def test_unordered_prune(ros: RouterOsMachine, rsc_dir: Path) -> None:
     assert_eq(count_only(ros, ADDRESS_LIST, 'list="routnix-test-prune"'), 2)
 
     ros.ssh_cmd(f'{ADDRESS_LIST} remove [find where list="routnix-test-prune"]')
+
+
+def test_unordered_prune_empty(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Regression: kind = "unordered" prunes unconditionally, even
+    with an empty `items` list -- declaring no items for a path must
+    still remove everything already there, not leave the path
+    untouched."""
+    ros.ssh_cmd(
+        f'{ADDRESS_LIST} add address=10.10.10.60 list="routnix-test-empty" '
+        f'comment="routnix-test-unordered-empty-manual"'
+    )
+
+    import_config(ros, rsc_dir, "unordered_prune_empty")
+
+    assert_eq(count_only(ros, ADDRESS_LIST), 0, context=f"{ADDRESS_LIST} count after applying empty unordered items")
 
 
 def test_settings_apply(ros: RouterOsMachine, rsc_dir: Path) -> None:
@@ -398,6 +424,20 @@ def test_effect_prune(ros: RouterOsMachine, rsc_dir: Path) -> None:
     ros.ssh_cmd('/system note set note=""')
 
 
+def test_effect_prune_empty(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Regression: kind = "effect" prunes unconditionally, even with
+    an empty `items` list -- declaring no items for a path must still
+    remove everything already there, not leave the path untouched."""
+    ros.ssh_cmd(
+        f'{ADDRESS_LIST} add address=10.10.10.61 list="routnix-test-empty" '
+        f'comment="routnix-test-effect-empty-manual"'
+    )
+
+    import_config(ros, rsc_dir, "effect_prune_empty")
+
+    assert_eq(count_only(ros, ADDRESS_LIST), 0, context=f"{ADDRESS_LIST} count after applying empty effect items")
+
+
 # Ordering matters within the "ordered_*" group -- each builds on the
 # router state the previous one left behind (see their docstrings).
 # Everything else is independent and self-cleaning.
@@ -408,15 +448,18 @@ SUBTESTS: list[tuple[str, Callable[[RouterOsMachine, Path], None]]] = [
     ("ordered_edit", test_ordered_edit),
     ("ordered_ignore", test_ordered_ignore),
     ("ordered_ignore_overlap", test_ordered_ignore_overlap),
+    ("ordered_prune_empty", test_ordered_prune_empty),
     ("unordered_add", test_unordered_add),
     ("unordered_idempotent", test_unordered_idempotent),
     ("unordered_find_fields", test_unordered_find_fields),
     ("unordered_prune", test_unordered_prune),
+    ("unordered_prune_empty", test_unordered_prune_empty),
     ("settings_apply", test_settings_apply),
     ("settings_idempotent", test_settings_idempotent),
     ("effect_add", test_effect_add),
     ("effect_idempotent", test_effect_idempotent),
     ("effect_prune", test_effect_prune),
+    ("effect_prune_empty", test_effect_prune_empty),
 ]
 
 

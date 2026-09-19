@@ -85,6 +85,30 @@
     '';
   };
 
+  # Pruning is mandatory regardless of how many items are declared, so
+  # an empty `items` list must still emit the prune sweep (and thus
+  # remove anything left over at the path) rather than rendering
+  # nothing at all for it. `find` is still required for kind =
+  # "effect" even though it goes unused here (see
+  # testEffectMissingFindThrows).
+  testEffectEmptyItemsStillPrunes = {
+    expr = rsc {
+      routeros.config."/x" = {
+        kind = "effect";
+        find = item: {a = item.a;};
+        items = [];
+      };
+    };
+    expected = ''
+      /x
+      :local ignore ({})
+      :local managed ({})
+      :foreach i in=[/x find] do={
+        :if ([:find ($managed,$ignore) $i -1] < 0) do={ /x remove $i }
+      }
+    '';
+  };
+
   testEffectMissingFindThrows = {
     expr = throws (rsc {
       routeros.config."/x" = {
