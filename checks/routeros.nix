@@ -79,9 +79,9 @@ in
       ${testPython}/bin/python3 ${testHelpers}/routeros_test.py \
         --image   "$(ls ${image}/*.img)" \
         --rsc-dir "${rscDir}" \
-        --qemu    "$(command -v ${pkgs.qemu_test}/bin/qemu-system-x86_64)" \
-        --ssh     "$(command -v ${pkgs.openssh}/bin/ssh)" \
-        --scp     "$(command -v ${pkgs.openssh}/bin/scp)" \
+        --qemu    "${pkgs.qemu_test}/bin/qemu-system-x86_64" \
+        --ssh     "${pkgs.openssh}/bin/ssh" \
+        --scp     "${pkgs.openssh}/bin/scp" \
         --out-dir "$out"
 
       touch "$out/success"
