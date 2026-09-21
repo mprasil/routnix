@@ -8,8 +8,8 @@ tool/build step for ordering or rendering.
 > Very early and experimental. The low-level DSL shown below works, but
 > most of the design (ownership tracking, idempotent updates, high-level
 > modules, actually applying config to a router) is still unimplemented or
-> unsettled. See [`DESIGN.md`](./DESIGN.md) for the full picture — what's
-> actually built vs. what's still open design space.
+> unsettled. See [`dr/`](./dr) for settled decisions and [`rfc/`](./rfc)
+> for what's still open design space.
 
 ## Example
 
@@ -67,8 +67,10 @@ To quit the VM, use `ctrl-A x` (a QEMU monitor escape, not RouterOS-specific).
 
 ## Status
 
-RouterOS-only, no plans otherwise (see `DESIGN.md` for the naming
-rationale). Nothing here should be pointed at a real router yet — there's
+RouterOS-only, no plans otherwise (see
+[`dr/routeros-namespace-scope.md`](./dr/routeros-namespace-scope.md) for
+the naming rationale). Nothing here should be pointed at a real router
+yet — there's
 no apply mechanism, no idempotent update logic, and no ownership tracking
 implemented.
 

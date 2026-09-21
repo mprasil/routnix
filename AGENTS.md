@@ -11,12 +11,15 @@ only, for now and for the foreseeable future** — the name and the
 require a rename, not because multi-backend support is planned or in
 scope. Very early / exploratory — most of the design is still open.
 
-**Read `DESIGN.md` first.** Its "Settled" section is the actual current
-state of the code; treat it as accurate. Its "Open design space" section is
-discussion notes, not a spec — do not treat anything there as decided, and
-do not silently pick one of the discussed options while implementing.
-When in doubt about anything not covered by "Settled", ask rather than
-assume.
+[`dr/`](./dr) holds settled, final decisions — treat those as accurate.
+[`rfc/`](./rfc) holds open design questions with options under
+consideration but no final decision — do not treat anything there as
+decided, and do not silently pick one of the discussed options while
+implementing. Don't read every file in both upfront: skim the file names
+(one per decision/question) to see what exists, then read the ones
+relevant to the task at hand, going back for more as the task's scope
+becomes clearer. When in doubt about anything not covered by an existing
+decision record, ask rather than assume.
 
 ## Layout
 
@@ -31,6 +34,8 @@ lib/default.nix          -- evalConfig { modules } entry point
 lib/tests/               -- pure-Nix unit tests for library nix files split by topic
 modules/tests/           -- pure-Nix unit tests for modules/*.nix split by module
 examples/                -- example configs
+dr/                      -- settled decision records
+rfc/                     -- open design questions, not yet decided
 checks/configs/          -- one focused config per feature, used by the
                             RouterOS CHR integration check
 checks/                  -- RouterOS CHR integration check and the pure-Nix unit test checks
@@ -49,7 +54,7 @@ flake.nix                -- packages.<system>.example, .ros-image-<alias>, .ros-
 Code comments and `mkOption` `description`s document current behavior —
 what the code does or what an option controls — not the design discussion
 or rationale behind it. Rationale, alternatives considered, and decision
-history belong in `DESIGN.md`, not in `.nix` files.
+history belong in `dr/` (settled) or `rfc/` (open), not in `.nix` files.
 
 - Don't narrate the design process (e.g. "settled", "decided", "direction
   discussed", "deliberately has no default because...") — just state what
@@ -58,9 +63,9 @@ history belong in `DESIGN.md`, not in `.nix` files.
   its purpose and effect, not why it's a good idea.
 - Don't document planned-but-unimplemented behavior or current limitations
   as if they were part of the design (e.g. "reapplying currently
-  duplicates entries" on an option about ordering) — that's a `DESIGN.md`
-  "Open design space" concern, not something a user of the option needs to
-  know to use it correctly today.
+  duplicates entries" on an option about ordering) — that's an `rfc/`
+  concern, not something a user of the option needs to know to use it
+  correctly today.
 - In `mkOption` `description`s specifically, describe things from the
   config author's point of view (what happens to their router / their
   declared entries), not the internal pipeline (e.g. `"set"`/`"add"` are
