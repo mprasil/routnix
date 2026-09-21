@@ -50,9 +50,9 @@ See `examples/` for the source of that config.
 
 ## RouterOS CHR VMs
 
-For trying things out against a real RouterOS instance, `x86_64-linux`
-exposes packaged CHR (Cloud Hosted Router) images and ready-to-run VMs for
-a set of RouterOS versions (see `ros_versions.nix`):
+For trying things out against a real RouterOS instance, flake exposes packaged
+CHR (Cloud Hosted Router) images and ready-to-run VMs for a set of RouterOS
+versions (see `ros_versions.nix`):
 
 ```console
 $ nix run .#ros-vm-long-term-v7
@@ -63,16 +63,13 @@ to the host (port `2222` by default, override with `VM_SSH_PORT`). The
 underlying disk image is also available on its own via
 `.#ros-image-<alias>`, e.g. `.#ros-image-stable-v7`.
 
-To quit the VM, use `ctrl-A x` (a QEMU monitor escape, not RouterOS-specific).
+To quit the VM, use QEMU monitor escape `ctrl-A x`.
 
 ## Status
 
 RouterOS-only, no plans otherwise (see
-[`dr/routeros-namespace-scope.md`](./dr/routeros-namespace-scope.md) for
-the naming rationale). Nothing here should be pointed at a real router
-yet — there's
-no apply mechanism, no idempotent update logic, and no ownership tracking
-implemented.
+[`dr/routeros-namespace-scope.md`](./dr/routeros-namespace-scope.md) for the
+naming rationale), though not necessarily ruled out in the future.
 
 ## Inspirations
 
