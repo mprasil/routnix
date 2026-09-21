@@ -538,6 +538,37 @@ def test_users_existing_user_keys(ros: RouterOsMachine, rsc_dir: Path) -> None:
     ros.ssh_cmd(f'{USER} remove [find where name="routnix-test-existinguser"]')
 
 
+# The "firewall_*" group runs last: firewall_basic.nix's mandatory
+# prune sweep clears the whole /ip firewall filter table and reinstates
+# only the rules it declares (including tcp/22, so this test's own SSH
+# access survives). It must not run before the "ordered_*" group, whose
+# assertions rely on its own table contents.
+
+
+def test_firewall_filter_block_ordering(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """The `firewall.filter` module: named blocks compile down to a
+    single kind = "ordered" /ip firewall filter table, ordered by
+    block-level `before`/`after`, so the declared rules land in the
+    intended order."""
+    import_config(ros, rsc_dir, "firewall_basic")
+    out = ros.ssh_cmd(f"{FILTER} print")
+    assert_order(
+        out,
+        "routnix-test-fw-established",
+        "routnix-test-fw-ssh",
+        "routnix-test-fw-icmp",
+        "routnix-test-fw-drop",
+        context=f"{FILTER} print after firewall_basic",
+    )
+    assert_eq(count_only(ros, FILTER), 4, context=f"{FILTER} count after firewall_basic")
+
+
+def test_firewall_filter_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Reapplying the module-generated table must not duplicate rules."""
+    import_config(ros, rsc_dir, "firewall_basic")
+    assert_eq(count_only(ros, FILTER), 4, context=f"{FILTER} count after reapplying firewall_basic")
+
+
 # Ordering matters within the "ordered_*" and "users_*" groups -- each
 # builds on the router state the previous one left behind. Everything
 # else is independent and self-cleaning.
@@ -567,6 +598,8 @@ SUBTESTS: list[tuple[str, Callable[[RouterOsMachine, Path], None]]] = [
     ("users_ssh_keys_idempotent", test_users_ssh_keys_idempotent),
     ("users_ssh_keys_wipe", test_users_ssh_keys_wipe),
     ("users_existing_user_keys", test_users_existing_user_keys),
+    ("firewall_filter_block_ordering", test_firewall_filter_block_ordering),
+    ("firewall_filter_idempotent", test_firewall_filter_idempotent),
 ]
 
 
