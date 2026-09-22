@@ -149,6 +149,7 @@ FILTER = "/ip firewall filter"
 ADDRESS_LIST = "/ip firewall address-list"
 USER = "/user"
 USER_SSH_KEYS = "/user ssh-keys"
+ETHERNET = "/interface ethernet"
 
 
 def test_ordered_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
@@ -440,6 +441,30 @@ def test_effect_prune_empty(ros: RouterOsMachine, rsc_dir: Path) -> None:
     assert_eq(count_only(ros, ADDRESS_LIST), 0, context=f"{ADDRESS_LIST} count after applying empty effect items")
 
 
+def test_inventory_configure(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """kind = "inventory": a hardware-bound entry that already exists (an
+    ethernet interface) is located by `find` and adjusted in place (its
+    comment set), with nothing added or removed."""
+    before = count_only(ros, ETHERNET)
+    import_config(ros, rsc_dir, "inventory_basic")
+    out = ros.ssh_cmd(f"{ETHERNET} print detail")
+    assert_contains(out, "routnix-test-inventory", context=f"{ETHERNET} print detail")
+    # inventory never prunes: the interface set is unchanged.
+    assert_eq(count_only(ros, ETHERNET), before, context=f"{ETHERNET} count after inventory_basic")
+
+
+def test_inventory_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Reapplying converges on the same comment without error, and (since
+    inventory can't add) without duplicating anything."""
+    before = count_only(ros, ETHERNET)
+    import_config(ros, rsc_dir, "inventory_basic")
+    out = ros.ssh_cmd(f"{ETHERNET} print detail")
+    assert_contains(out, "routnix-test-inventory", context=f"{ETHERNET} print detail (reapply)")
+    assert_eq(count_only(ros, ETHERNET), before, context=f"{ETHERNET} count after reapply")
+
+    ros.ssh_cmd(f'{ETHERNET} set [find where comment="routnix-test-inventory"] comment=""')
+
+
 # The "users_*" group shares state across its subtests the same way the
 # "ordered_*" group does: each relies on the router state the previous
 # one left behind. Every config in this group declares `admin` with
@@ -591,6 +616,8 @@ SUBTESTS: list[tuple[str, Callable[[RouterOsMachine, Path], None]]] = [
     ("effect_idempotent", test_effect_idempotent),
     ("effect_prune", test_effect_prune),
     ("effect_prune_empty", test_effect_prune_empty),
+    ("inventory_configure", test_inventory_configure),
+    ("inventory_idempotent", test_inventory_idempotent),
     ("users_add", test_users_add),
     ("users_idempotent", test_users_idempotent),
     ("users_prune", test_users_prune),

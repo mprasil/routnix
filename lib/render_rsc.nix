@@ -5,6 +5,7 @@
   inherit (import ./render_rsc/ordered.nix {inherit lib;}) renderOrderedItems;
   inherit (import ./render_rsc/unordered.nix {inherit lib;}) deriveFind renderUnordered;
   inherit (import ./render_rsc/effect.nix {inherit lib;}) renderEffect;
+  inherit (import ./render_rsc/inventory.nix {inherit lib;}) renderInventory;
 
   # A single `set` of all declared fields.
   renderSettings = path: settings:
@@ -13,9 +14,9 @@
     else "${path}\nset ${renderArgs settings}";
 
   renderEntry = path: entry: let
-    # "effect" requires an explicit `find`; "ordered"/"unordered"
-    # always derive their own from `items` instead, folding in
-    # `ignore`'s fields too, since both kinds always prune.
+    # "effect"/"inventory" require an explicit `find`; "ordered"/
+    # "unordered" always derive their own from `items` instead, folding
+    # in `ignore`'s fields too, since both kinds always prune.
     find =
       if entry.kind == "ordered" || entry.kind == "unordered"
       then deriveFind (entry.items ++ entry.ignore)
@@ -28,8 +29,10 @@
       else map find entry.items;
     duplicate = filter (q: builtins.length (filter (q2: q2 == q) queries) > 1) queries;
   in
-    if entry.kind == "effect" && entry.find == null
-    then throw ''routnix: `find` is required for kind = "effect" (at ${path})''
+    if (entry.kind == "effect" || entry.kind == "inventory") && entry.find == null
+    then throw ''routnix: `find` is required for kind = "${entry.kind}" (at ${path})''
+    else if entry.kind == "inventory" && entry.configure == null
+    then throw ''routnix: `configure` is required for kind = "inventory" (at ${path})''
     else if duplicate != []
     then throw ''routnix: `find` doesn't uniquely identify every item in ${path} -- multiple items produce ${renderQuery (builtins.head duplicate)}''
     else if entry.kind == "settings"
@@ -38,6 +41,8 @@
     then renderOrderedItems path find entry.items entry.ignore
     else if entry.kind == "unordered"
     then renderUnordered path find entry
+    else if entry.kind == "inventory"
+    then renderInventory path find entry
     else # "effect"
       renderEffect path find entry;
 in {
