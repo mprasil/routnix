@@ -93,16 +93,33 @@ $ nix run .#home-router.apply -- admin@192.168.88.1
 $ nix run .#home-router.apply -- admin@192.168.88.1 --copy-only
 ```
 
-`apply` is a thin wrapper around plain `scp`/`ssh` — no rollback yet if
-`/import` fails partway through, and no host, user, or credentials are
-baked into the package: auth, host keys, and identity are entirely up to
-your own `ssh`/`scp` config and agent, the same as `ssh admin@router` would
-use directly. `ROUTNIX_SSH_OPTS`/`ROUTNIX_SCP_OPTS` pass extra
-space-separated options straight through (e.g. a non-default port or
-identity file) for cases not already covered by `~/.ssh/config`:
+`apply` is a thin wrapper around plain `scp`/`ssh`: no rollback yet if
+`/import` fails partway through, and no credentials are baked into the
+package. Auth, host keys, and identity are entirely up to your own
+`ssh`/`scp` config and agent, the same as `ssh admin@router` would use
+directly. The target `user@host` is normally passed at invocation time;
+passing `host` to `mkDeviceConfig` instead bakes in a default, so a bare
+`nix run .#home-router.apply` works. Extra options for cases not already
+covered by `~/.ssh/config` (e.g. a non-default port or identity file) can
+be baked in via the `sshOptions`/`scpOptions` lists, or passed
+per-invocation via the `ROUTNIX_SSH_OPTS`/`ROUTNIX_SCP_OPTS`
+space-separated env vars (applied after the baked-in ones):
+
+```nix
+home-router = routnix.lib.mkDeviceConfig {
+  inherit pkgs;
+  name = "home-router";
+  modules = [./routers/home-router.nix];
+  host = "admin@192.168.88.1";
+  sshOptions = ["-p" "2222"];
+  scpOptions = ["-P" "2222"];
+};
+```
 
 ```console
-$ ROUTNIX_SSH_OPTS="-p 2222" ROUTNIX_SCP_OPTS="-P 2222" nix run .#home-router.apply -- admin@127.0.0.1
+$ nix run .#home-router.apply                    # uses the host default
+$ nix run .#home-router.apply -- admin@10.0.0.1  # override at runtime
+$ ROUTNIX_SSH_OPTS="-p 2222" ROUTNIX_SCP_OPTS="-P 2222" nix run .#home-router.apply
 ```
 
 ## RouterOS CHR VMs

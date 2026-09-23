@@ -16,7 +16,8 @@ several routers and applying any single one with a simple command.
 
 # Decision
 
-`lib.mkDeviceConfig { pkgs, modules, name ? "routnix" }` evaluates
+`lib.mkDeviceConfig { pkgs, modules, name ? "routnix", host ? null,
+openssh ? pkgs.openssh, sshOptions ? [], scpOptions ? [] }` evaluates
 `modules` via `evalConfig`, renders the `.rsc` as a `pkgs.writeText`
 package, and attaches a `writeShellApplication` apply wrapper as its
 `apply` attribute (`rscPackage // { apply = ...; }`, the same `passthru`
@@ -38,13 +39,16 @@ $ nix run   .#home-router.apply -- admin@192.168.88.1
 
 The apply wrapper's own transport/rollback behavior is a separate, still
 open question (see
-[`../rfc/apply-mechanism.md`](../rfc/apply-mechanism.md)). The target host
-is a
-runtime argument to `apply`, not a module option or flake input, so no
-address or credential is baked into the store; the wrapper's own auth
-comes entirely from the ambient `ssh`/`scp` config and agent, matching
-`nixos-rebuild --target-host` and how the integration check already talks
-to RouterOS (see
+[`../rfc/apply-mechanism.md`](../rfc/apply-mechanism.md)). Its target
+host is a runtime argument to `apply`, with an optional default passed to
+`mkDeviceConfig` as `host` so a bare `nix run .#router.apply` works;
+runtime arguments still override the default, and a default address is
+baked into the store when one is set. Like `sshOptions`/`scpOptions`,
+this is user-side apply configuration rather than part of the device's
+routnix configuration (there is no `routeros.*` option for it). The
+wrapper's own auth and identity come entirely from the ambient
+`ssh`/`scp` config and agent, matching `nixos-rebuild --target-host` and
+how the integration check already talks to RouterOS (see
 [`chr-integration-test-transport.md`](./chr-integration-test-transport.md)).
 
 `mkDeviceConfig` takes `pkgs` explicitly (rather than being curried over
