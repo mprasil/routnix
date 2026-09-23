@@ -8,8 +8,6 @@
       (lib.filterAttrs
         (name: type: type == "regular" && lib.hasSuffix ".nix" name)
         (builtins.readDir ../modules)));
-in {
-  inherit (extendedLib) routnix;
 
   # Evaluates a routnix configuration and renders it into a `.rsc` script.
   #
@@ -25,4 +23,11 @@ in {
     order = extendedLib.routnix.sortEntries evaluated.config.routeros.config;
   in
     evaluated // {rsc = extendedLib.routnix.renderConfig evaluated.config.routeros.config order;};
+in {
+  inherit (extendedLib) routnix;
+  inherit evalConfig;
+
+  # Renders one router's `modules` to an `.rsc` package with an `apply`
+  # wrapper attached (see `mk_device_config.nix`).
+  mkDeviceConfig = import ./mk_device_config.nix {inherit evalConfig;};
 }

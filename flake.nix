@@ -21,14 +21,18 @@
       images = import ./images.nix {inherit lib pkgs;};
       vms = import ./vms.nix {inherit lib pkgs;};
 
-      example = routnixLib.evalConfig {modules = [./examples/basic.nix];};
+      example = routnixLib.mkDeviceConfig {
+        inherit pkgs;
+        name = "example";
+        modules = [./examples/basic.nix];
+      };
       # VM image for specific ROS version
       ros-vm-images = lib.mapAttrs' (name: value: lib.nameValuePair "ros-image-${name}" value) images;
       # VM with specific ROS version
       ros-vms = lib.mapAttrs' (name: value: lib.nameValuePair "ros-vm-${name}" value) vms;
     in
       {
-        example = pkgs.writeText "routnix-example.rsc" example.rsc;
+        inherit example;
       }
       // ros-vm-images
       // ros-vms);

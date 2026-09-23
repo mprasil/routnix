@@ -48,6 +48,63 @@ $ nix build .#example && cat result
 
 See `examples/` for the source of that config.
 
+## Using routnix in your own flake
+
+Add routnix as a flake input and call `lib.mkDeviceConfig` once per
+router, passing that system's `pkgs` and the router's own modules:
+
+```nix
+{
+  inputs.routnix.url = "github:<you>/routnix";
+
+  outputs = {self, nixpkgs, routnix}: let
+    forAllSystems = nixpkgs.lib.genAttrs ["x86_64-linux"];
+  in {
+    packages = forAllSystems (system: let
+      pkgs = nixpkgs.legacyPackages.${system};
+    in {
+      home-router = routnix.lib.mkDeviceConfig {
+        inherit pkgs;
+        name = "home-router";
+        modules = [./routers/home-router.nix];
+      };
+
+      office-router = routnix.lib.mkDeviceConfig {
+        inherit pkgs;
+        name = "office-router";
+        modules = [./routers/office-router.nix];
+      };
+    });
+  };
+}
+```
+
+Each router becomes its own package, with an `apply` wrapper carried
+alongside it:
+
+```console
+# Build/inspect the rendered .rsc without touching any router
+$ nix build .#home-router && cat result
+
+# scp it to the router, `/import` it over ssh, then remove it
+$ nix run .#home-router.apply -- admin@192.168.88.1
+
+# Just copy it over, e.g. to review/import by hand
+$ nix run .#home-router.apply -- admin@192.168.88.1 --copy-only
+```
+
+`apply` is a thin wrapper around plain `scp`/`ssh` — no rollback yet if
+`/import` fails partway through, and no host, user, or credentials are
+baked into the package: auth, host keys, and identity are entirely up to
+your own `ssh`/`scp` config and agent, the same as `ssh admin@router` would
+use directly. `ROUTNIX_SSH_OPTS`/`ROUTNIX_SCP_OPTS` pass extra
+space-separated options straight through (e.g. a non-default port or
+identity file) for cases not already covered by `~/.ssh/config`:
+
+```console
+$ ROUTNIX_SSH_OPTS="-p 2222" ROUTNIX_SCP_OPTS="-P 2222" nix run .#home-router.apply -- admin@127.0.0.1
+```
+
 ## RouterOS CHR VMs
 
 For trying things out against a real RouterOS instance, flake exposes packaged
