@@ -100,8 +100,7 @@ in
         scp "''${scp_opts[@]}" "$rsc_file" "admin@127.0.0.1:$remote_name"
 
         msg "vm-${name}: importing $remote_name"
-        ros_ssh "/import $remote_name"
-        ros_ssh "/file remove $remote_name" >/dev/null 2>&1 || true
+        ros_ssh "/import $remote_name; /file remove $remote_name" || true
 
         if ros_ssh "/system identity print" >/dev/null 2>&1; then
           msg "vm-${name}: configuration applied"

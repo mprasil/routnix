@@ -143,10 +143,7 @@
 
       if [ "$copy_only" = false ]; then
         echo "Importing ${remoteName} on $host" >&2
-        ssh "''${ssh_opts[@]}" "$host" "/import ${remoteName}"
-
-        echo "Removing ${remoteName} from $host" >&2
-        ssh "''${ssh_opts[@]}" "$host" "/file remove ${remoteName}"
+        ssh "''${ssh_opts[@]}" "$host" "/import ${remoteName}; /file remove ${remoteName}"
       fi
     '';
   };
