@@ -33,10 +33,15 @@
       {
         chain = "input";
         action = "accept";
+        "src-address-list" = "trusted-ips";
+        comment = "allow-trusted";
+      }
+      {
+        chain = "input";
+        action = "accept";
         protocol = "tcp";
         "dst-port" = 22;
-        "src-address-list" = "trusted-ips";
-        comment = "allow-ssh-trusted";
+        comment = "allow-ssh";
       }
       {
         chain = "input";

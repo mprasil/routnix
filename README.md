@@ -28,7 +28,8 @@ tool/build step for ordering or rendering.
     items = [
       { chain = "input"; action = "accept"; protocol = "icmp"; }
       { chain = "input"; action = "accept"; "connection-state" = "established,related"; }
-      { chain = "input"; action = "accept"; protocol = "tcp"; "dst-port" = 22; "src-address-list" = "trusted-ips"; }
+      { chain = "input"; action = "accept"; "src-address-list" = "trusted-ips"; }
+      { chain = "input"; action = "accept"; protocol = "tcp"; "dst-port" = 22; }
       { chain = "input"; action = "drop"; }
     ];
   };
@@ -138,6 +139,38 @@ underlying disk image is also available on its own via
 `.#ros-image-<alias>`, e.g. `.#ros-image-stable-v7`.
 
 To quit the VM, use QEMU monitor escape `ctrl-A x`.
+
+## Running a device's config in a VM
+
+Every device also gets its own runnable VM, which boots a CHR image and
+applies that device's rendered `.rsc` to it once RouterOS is up:
+
+```nix
+home-router = routnix.lib.mkDeviceConfig {
+  inherit pkgs;
+  name = "home-router";
+  modules = [./routers/home-router.nix];
+  vm = {rosVersion = "stable-v7"; sshPort = 2222;};
+};
+```
+
+```console
+$ nix run .#home-router.vm
+```
+
+It prints the ssh command to use (`ssh -p 2222 admin@127.0.0.1`) and stays
+in the foreground until the VM is stopped; Ctrl-C stops it. The guest
+console is logged to a file whose path is printed, so pass `--console` to
+attach it to the terminal instead (the VM is then stopped with `ctrl-A x`).
+
+`vm` defaults to `rosVersion = "stable-v7"`, `sshPort = 2222`, and
+`console = false`, so a bare `nix run .#home-router.vm` works; the port can
+also be set with `VM_SSH_PORT`. `vm.image` takes any CHR image directory
+(e.g. `.#ros-image-<alias>`) in place of `rosVersion`. `rosVersion` has to
+match the device's `device.platform`, since the `.rsc` is rendered for that
+platform; a mismatch is an error, while `vm.image` skips the check.
+
+The VM's disk is a QEMU snapshot, so nothing applied to it survives.
 
 ## Status
 

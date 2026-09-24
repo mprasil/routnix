@@ -1,7 +1,7 @@
 {evalConfig}:
 # Evaluates a router's `modules` (via `evalConfig`) and packages the
-# rendered `.rsc` as a derivation, with a thin `apply` wrapper attached
-# via `passthru`:
+# rendered `.rsc` as a derivation, with an `apply` and a `vm` wrapper
+# attached via `passthru`:
 #
 #   mkDeviceConfig { inherit pkgs; name = "home-router"; modules = [ ./home-router.nix ]; }
 #
@@ -13,6 +13,11 @@
 # `ROUTNIX_SSH_OPTS`/`ROUTNIX_SCP_OPTS` env vars) pass extra options
 # through to `ssh`/`scp` (e.g. a non-default port or identity file). The
 # uploaded file is named after the `.rsc` store path (`<hash>-<name>.rsc`).
+#
+# `vm` boots a RouterOS CHR VM with that same `.rsc` applied to it over
+# SSH, for trying the configuration out without a physical router (see
+# `mk_vm.nix`); its image, SSH port, and console handling come from the
+# `vm` argument below.
 {
   pkgs,
   modules,
@@ -21,12 +26,55 @@
   openssh ? pkgs.openssh,
   sshOptions ? [],
   scpOptions ? [],
+  vm ? {},
 }: let
+  inherit (pkgs) lib;
+
   evaluated = evalConfig {inherit modules;};
   rscFile = pkgs.writeText "${name}.rsc" evaluated.rsc;
   remoteName = builtins.baseNameOf rscFile;
   defaultHost = if host == null then "" else host;
   hostArg = if host == null then "<user@host>" else "[<user@host>]";
+
+  vmConfig =
+    {
+      rosVersion = "stable-v7";
+      image = null;
+      sshPort = 2222;
+      console = false;
+    }
+    // vm;
+
+  versions = import ../ros_versions.nix;
+
+  # The rendered `.rsc` follows `device.platform`, so a VM of a different
+  # RouterOS major version would exercise the wrong branch.
+  vmImage =
+    if vmConfig.image != null
+    then vmConfig.image
+    else if !(versions ? ${vmConfig.rosVersion})
+    then
+      throw ''
+        routnix: vm.rosVersion "${vmConfig.rosVersion}" is not a known RouterOS version -- expected one of: ${lib.concatStringsSep ", " (builtins.attrNames versions)}
+      ''
+    else let
+      imageMajor = lib.head (lib.splitString "." versions.${vmConfig.rosVersion}.version);
+      platformMajor = lib.removePrefix "routeros_v" evaluated.config.device.platform;
+    in
+      if imageMajor == platformMajor
+      then (import ../images.nix {inherit lib pkgs;}).${vmConfig.rosVersion}
+      else
+        throw ''
+          routnix: vm.rosVersion "${vmConfig.rosVersion}" is RouterOS ${imageMajor}, but device.platform is ${evaluated.config.device.platform} -- set device.platform to routeros_v${imageMajor}, or boot a RouterOS ${platformMajor} image via vm.image
+        '';
+
+  vmScript = (import ./mk_vm.nix {inherit pkgs;}) {
+    inherit name;
+    rscFile = rscFile;
+    image = vmImage;
+    sshPort = vmConfig.sshPort;
+    console = vmConfig.console;
+  };
 
   apply = pkgs.writeShellApplication {
     name = "apply";
@@ -103,4 +151,4 @@
     '';
   };
 in
-  rscFile // {inherit apply;}
+  rscFile // {inherit apply; vm = vmScript;}
