@@ -3,7 +3,11 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = {nixpkgs, ...}: let
+  outputs = {
+    self,
+    nixpkgs,
+    ...
+  }: let
     forAllSystems = nixpkgs.lib.genAttrs [
       "x86_64-linux"
       "aarch64-linux"
@@ -30,9 +34,29 @@
       ros-vm-images = lib.mapAttrs' (name: value: lib.nameValuePair "ros-image-${name}" value) images;
       # VM with specific ROS version
       ros-vms = lib.mapAttrs' (name: value: lib.nameValuePair "ros-vm-${name}" value) vms;
+
+      # Docs
+      eval = routnixLib.evalConfig {modules = [];};
+      docs = pkgs.nixosOptionsDoc {
+        inherit (eval) options;
+        transformOptions = opt:
+          opt
+          # nixpkgs declares `_module.args` visible at the root of the option
+          # tree (lib/modules.nix); it isn't part of routnix's API.
+          // lib.optionalAttrs (lib.head opt.loc == "_module") {visible = false;}
+          // {
+            # Declarations are the absolute store paths the modules were loaded
+            # from; report them relative to the flake source instead.
+            declarations = map (decl: {name = lib.removePrefix "${self.outPath}/" (toString decl);}) opt.declarations;
+          };
+      };
+      documentation = pkgs.runCommand "routnix docs" {} ''
+        cp ${docs.optionsAsciiDoc} routnix.adoc
+        ${pkgs.asciidoctor}/bin/asciidoctor  -D $out routnix.adoc
+      '';
     in
       {
-        inherit example;
+        inherit example documentation;
       }
       // ros-vm-images
       // ros-vms);
