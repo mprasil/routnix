@@ -1,185 +1,210 @@
-# routnix
+# Routnix
 
-Declarative RouterOS (MikroTik) configuration using the Nix module system,
-rendered to idempotent `.rsc` scripts — entirely in Nix, with no external
-tool/build step for ordering or rendering.
+Use Nix to declaratively configure network devices. Currently supported are
+RouterOS based systems.
 
-> [!WARNING]
-> Very early and experimental. The low-level DSL shown below works, but
-> most of the design (ownership tracking, idempotent updates, high-level
-> modules, actually applying config to a router) is still unimplemented or
-> unsettled. See [`dr/`](./dr) for settled decisions and [`rfc/`](./rfc)
-> for what's still open design space.
+> [!NOTE]
+> This project is not affiliated with, endorsed by, sponsored by, or otherwise
+> associated with Mikrotik - the creator of RouterOS.
+>
+> Early stage of development, basic functionality is implemented, but expect
+> sharp edges and bugs.
 
-## Example
+## Goals
+
+- Idempotent configuration that's safe to apply repeatedly
+- Nix wrapper that takes care of the complicated stuff
+- Extensible system of configuration
+
+## How does this work?
+
+You write Nix modules describing the desired state of a router - users, SSH
+keys, firewall rules, addresses, and so on - the same way you would describe
+a NixOS or home-manager system. Routnix evaluates them and renders the result
+as a single RouterOS script (`.rsc`), entirely in Nix:
+
+1. Every module contributes to `routeros.config`, an attrset keyed by
+   RouterOS path (e.g. `"/ip firewall filter"`). Each path declares how it is
+   managed: an order-sensitive table, a presence-only table, a singleton
+   settings object, arbitrary commands, or hardware-bound entries that can
+   only be adjusted.
+2. Paths that depend on each other are ordered with `before`/`after` and
+   topologically sorted, so e.g. an address-list is created before the
+   firewall rule that references it.
+3. The ordered result is rendered into one `.rsc` script.
+
+The script does not blindly re-add everything on every run. For each declared
+item it looks up whether a matching entry already exists, then adds,
+repositions, or removes entries until the router matches the declaration, so
+importing the same script twice is a no-op rather than a duplicate. At a
+managed path, entries that are no longer declared are removed; `ignore`
+exempts entries managed by hand or by another tool from that sweep.
+
+`routeros.config` is the low-level escape hatch and maps closely to
+RouterOS's own paths and fields. On top of it sit higher-level modules
+(`users.*`, `firewall.filter.*`) that compile down to it, the same way NixOS
+service modules compile down to units.
+
+## Usage
+
+This project uses module system you know and love from nixpkgs. You provide the
+Nix modules to configure your RouterOS devices, Routnix will provide:
+
+- test VM to try the configuration
+- modules with higher level abstraction
+- deployment automation
+
+This could be your router config:
+
+```nix
+{
+  # Users and their SSH keys (/user, /user ssh-keys).
+  users.enable = true;
+  users.users.admin = {
+    # null (default) leaves existing keys alone; a list manages them fully.
+    sshPubKeys = [
+      # Replace with your own public key.
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExample user@laptop"
+    ];
+  };
+
+  # Firewall filter rules, grouped into named, orderable blocks.
+  firewall.filter.enable = true;
+  firewall.filter.rules = {
+    established = {
+      chain = "input";
+      rules = [
+        {action = "accept"; "connection-state" = "established,related";}
+        {action = "accept"; protocol = "icmp";}
+      ];
+    };
+    ssh = {
+      chain = "input";
+      after = ["established"];
+      rules = [
+        {action = "accept"; protocol = "tcp"; "dst-port" = 22;}
+      ];
+    };
+    drop = {
+      chain = "input";
+      after = ["ssh"];
+      rules = [
+        {action = "drop";}
+      ];
+    };
+  };
+}
+```
+
+Anything without a higher-level module yet can be written directly against
+`routeros.config`, keyed by RouterOS path:
 
 ```nix
 {
   routeros.config."/ip firewall address-list" = {
     kind = "unordered";
     items = [
-      { address = "192.168.1.0/24"; list = "trusted-ips"; }
-    ];
-  };
-
-  routeros.config."/ip firewall filter" = {
-    kind = "ordered";
-    after = [ "/ip firewall address-list" ];
-    items = [
-      { chain = "input"; action = "accept"; protocol = "icmp"; }
-      { chain = "input"; action = "accept"; "connection-state" = "established,related"; }
-      { chain = "input"; action = "accept"; "src-address-list" = "trusted-ips"; }
-      { chain = "input"; action = "accept"; protocol = "tcp"; "dst-port" = 22; }
-      { chain = "input"; action = "drop"; }
+      {address = "192.168.1.0/24"; list = "trusted-ips";}
     ];
   };
 }
 ```
 
-`after`/`before` declare ordering between RouterOS paths (needed since some
-config depends on other config existing first, e.g. an address-list before
-a firewall rule referencing it); routnix topologically sorts them and
-renders a single `.rsc` script in the right order.
+### Flake users
 
-## Try it
-
-```console
-$ nix build .#example && cat result
-```
-
-See `examples/` for the source of that config.
-
-## Using routnix in your own flake
-
-Add routnix as a flake input and call `lib.mkDeviceConfig` once per
-router, passing that system's `pkgs` and the router's own modules:
 
 ```nix
 {
-  inputs.routnix.url = "github:<you>/routnix";
+  description = "Router management";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Import Routnix
+    routnix = {
+      url = "github:mprasil/routnix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
 
-  outputs = {self, nixpkgs, routnix}: let
-    forAllSystems = nixpkgs.lib.genAttrs ["x86_64-linux"];
+  outputs = {
+    nixpkgs,
+    routnix,
+    ...
+  }: let
+    forAllSystems = nixpkgs.lib.genAttrs [
+      "x86_64-linux"
+      # ..other systems..
+    ];
   in {
     packages = forAllSystems (system: let
       pkgs = nixpkgs.legacyPackages.${system};
     in {
+      # Build your router config as package
       home-router = routnix.lib.mkDeviceConfig {
         inherit pkgs;
         name = "home-router";
-        modules = [./routers/home-router.nix];
-      };
-
-      office-router = routnix.lib.mkDeviceConfig {
-        inherit pkgs;
-        name = "office-router";
-        modules = [./routers/office-router.nix];
+        modules = [./home-router.nix];
       };
     });
   };
 }
 ```
 
-Each router becomes its own package, with an `apply` wrapper carried
-alongside it:
+Then you can:
 
-```console
-# Build/inspect the rendered .rsc without touching any router
-$ nix build .#home-router && cat result
+#### Check the generated `*.rsc` script
 
-# scp it to the router, `/import` it over ssh, then remove it
-$ nix run .#home-router.apply -- admin@192.168.88.1
-
-# Just copy it over, e.g. to review/import by hand
-$ nix run .#home-router.apply -- admin@192.168.88.1 --copy-only
+```sh
+nix build .#home-router && cat result
 ```
 
-`apply` is a thin wrapper around plain `scp`/`ssh`: no rollback yet if
-`/import` fails partway through, and no credentials are baked into the
-package. Auth, host keys, and identity are entirely up to your own
-`ssh`/`scp` config and agent, the same as `ssh admin@router` would use
-directly. The target `user@host` is normally passed at invocation time;
-passing `host` to `mkDeviceConfig` instead bakes in a default, so a bare
-`nix run .#home-router.apply` works. Extra options for cases not already
-covered by `~/.ssh/config` (e.g. a non-default port or identity file) can
-be baked in via the `sshOptions`/`scpOptions` lists, or passed
-per-invocation via the `ROUTNIX_SSH_OPTS`/`ROUTNIX_SCP_OPTS`
-space-separated env vars (applied after the baked-in ones):
+#### Apply the configuration
 
-```nix
-home-router = routnix.lib.mkDeviceConfig {
-  inherit pkgs;
-  name = "home-router";
-  modules = [./routers/home-router.nix];
-  host = "admin@192.168.88.1";
-  sshOptions = ["-p" "2222"];
-  scpOptions = ["-P" "2222"];
-};
+```sh
+nix run .#home-router.apply -- admin@192.168.88.1
 ```
 
-```console
-$ nix run .#home-router.apply                    # uses the host default
-$ nix run .#home-router.apply -- admin@10.0.0.1  # override at runtime
-$ ROUTNIX_SSH_OPTS="-p 2222" ROUTNIX_SCP_OPTS="-P 2222" nix run .#home-router.apply
+`apply` copies the rendered `.rsc` to the router over `scp` and runs
+`/import` over `ssh`, then removes the file again. Pass `--copy-only` to stop
+after the copy. Auth, host keys, and identity are left to your own
+`ssh`/`scp` config and agent. Passing `host` to `mkDeviceConfig` bakes in a
+default so a bare `nix run .#home-router.apply` works; extra options (e.g. a
+non-default port) go in the `sshOptions`/`scpOptions` lists or the
+`ROUTNIX_SSH_OPTS`/`ROUTNIX_SCP_OPTS` environment variables. There is no
+rollback yet if `/import` fails partway through.
+
+#### Run a test VM with your configuration
+
+```sh
+nix run .#home-router.vm
 ```
 
-## RouterOS CHR VMs
+This boots a RouterOS CHR image under QEMU/KVM with a snapshot disk and
+applies the device's `.rsc` to it over SSH once RouterOS is up, so nothing
+touches a real router. `vm.rosVersion` defaults to `stable-v7` and has to
+match the device's `device.platform`; `vm.sshPort` (also settable via
+`VM_SSH_PORT`) defaults to `2222`. Ctrl-C stops the VM.
 
-For trying things out against a real RouterOS instance, flake exposes packaged
-CHR (Cloud Hosted Router) images and ready-to-run VMs for a set of RouterOS
-versions (see `ros_versions.nix`):
+## Learn more
 
-```console
-$ nix run .#ros-vm-long-term-v7
+- [`examples/basic.nix`](./examples/basic.nix) - an example config.
+- [`checks/configs/`](./checks/configs) - one focused config per feature,
+  used by the integration check.
+- [`dr/`](./dr) - settled design decisions, one file each.
+- [`rfc/`](./rfc) - open design questions, not decided yet.
+- `nix build .#documentation` - rendered reference for every option.
+
+## Test drive
+
+You can run VM with [example configuration](./examples/basic.nix) applied right
+from this repo with:
+
+```sh
+nix run .#example.vm
 ```
 
-This boots the corresponding CHR image under QEMU/KVM with SSH forwarded
-to the host (port `2222` by default, override with `VM_SSH_PORT`). The
-underlying disk image is also available on its own via
-`.#ros-image-<alias>`, e.g. `.#ros-image-stable-v7`.
+The rendered script on its own is available with `nix build .#example && cat
+result`, and a plain CHR VM without any config with `nix run
+.#ros-vm-<alias>` (e.g. `.#ros-vm-stable-v7`; see `ros_versions.nix` for the
+aliases).
 
-To quit the VM, use QEMU monitor escape `ctrl-A x`.
 
-## Running a device's config in a VM
-
-Every device also gets its own runnable VM, which boots a CHR image and
-applies that device's rendered `.rsc` to it once RouterOS is up:
-
-```nix
-home-router = routnix.lib.mkDeviceConfig {
-  inherit pkgs;
-  name = "home-router";
-  modules = [./routers/home-router.nix];
-  vm = {rosVersion = "stable-v7"; sshPort = 2222;};
-};
-```
-
-```console
-$ nix run .#home-router.vm
-```
-
-It prints the ssh command to use (`ssh -p 2222 admin@127.0.0.1`) and stays
-in the foreground until the VM is stopped; Ctrl-C stops it. The guest
-console is logged to a file whose path is printed, so pass `--console` to
-attach it to the terminal instead (the VM is then stopped with `ctrl-A x`).
-
-`vm` defaults to `rosVersion = "stable-v7"`, `sshPort = 2222`, and
-`console = false`, so a bare `nix run .#home-router.vm` works; the port can
-also be set with `VM_SSH_PORT`. `vm.image` takes any CHR image directory
-(e.g. `.#ros-image-<alias>`) in place of `rosVersion`. `rosVersion` has to
-match the device's `device.platform`, since the `.rsc` is rendered for that
-platform; a mismatch is an error, while `vm.image` skips the check.
-
-The VM's disk is a QEMU snapshot, so nothing applied to it survives.
-
-## Status
-
-RouterOS-only, no plans otherwise (see
-[`dr/routeros-namespace-scope.md`](./dr/routeros-namespace-scope.md) for the
-naming rationale), though not necessarily ruled out in the future.
-
-## Inspirations
-
-- [`mikrotik.nix`](https://github.com/nrabulinski/mikrotik.nix) — declarative
-  RouterOS configuration via a Nix module system, rendering of rsc script is
-  done in Rust code rather than pure nix.
