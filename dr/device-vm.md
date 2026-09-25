@@ -2,7 +2,7 @@
 
 `mkDeviceConfig` renders a device's config and attaches an `apply` wrapper
 for putting it on a real router, and routnix separately packages CHR images
-and boots them (`vms.nix`, `images.nix`). Nothing connected a user's own
+and boots them (`nix/vms.nix`, `images.nix`). Nothing connected a user's own
 device config to a VM, so trying a config out meant a physical router, or
 hand-driving QEMU and `scp`/`/import` the way the integration check does.
 

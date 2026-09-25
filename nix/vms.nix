@@ -3,7 +3,7 @@
   pkgs,
   ...
 } @ inputs: let
-  images = import ./images.nix inputs;
+  images = import ../images.nix inputs;
   qemu = "${pkgs.qemu}/bin/qemu-system-x86_64";
 in
   lib.mapAttrs (ros_version: image:

@@ -40,8 +40,13 @@ checks/configs/          -- one focused config per feature, used by the
                             RouterOS CHR integration check
 checks/                  -- RouterOS CHR integration check and the pure-Nix unit test checks
 images.nix               -- RouterOS CHR images (one per entry in ros_versions.nix)
-vms.nix                  -- runnable QEMU VM scripts (one per entry in ros_versions.nix)
 ros_versions.nix         -- RouterOS CHR versions/hashes tested against
+nix/                     -- per-system outputs and the entry points that compose them:
+nix/docs.nix               option tree -> HTML
+nix/packages.nix           packages.<system>.* (example, documentation, images, VMs)
+nix/checks.nix             checks.<system>.* (unit tests, routeros-<alias>)
+nix/vms.nix                runnable QEMU VM scripts (one per entry in ros_versions.nix)
+default.nix              -- flake-agnostic entry point (lib, packages, checks)
 flake.nix                -- packages.<system>.example, .ros-image-<alias>, .ros-vm-<alias>
                             (one pair per ros_versions.nix entry),
                             checks.<system>.render-unit-tests,

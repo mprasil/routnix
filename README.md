@@ -184,6 +184,38 @@ touches a real router. `vm.rosVersion` defaults to `stable-v7` and has to
 match the device's `device.platform`; `vm.sshPort` (also settable via
 `VM_SSH_PORT`) defaults to `2222`. Ctrl-C stops the VM.
 
+### Non-flake users
+
+Without flakes, import the root `default.nix`, which exposes the same
+library as the flake's `lib` output:
+
+```nix
+let
+  pkgs = import <nixpkgs> {};
+  # Pin a rev (or use fetchFromGitHub with a hash) for reproducibility.
+  routnix = import (fetchTarball "https://github.com/mprasil/routnix/archive/<rev>.tar.gz") {
+    inherit pkgs;
+  };
+in
+  routnix.lib.mkDeviceConfig {
+    inherit pkgs;
+    name = "home-router";
+    modules = [./home-router.nix];
+  }
+```
+
+`pkgs` defaults to `<nixpkgs>`, so `import <src> {}` also works. The
+result is an ordinary derivation with `apply` and `vm` attributes, so the
+same operations are `nix-build` calls:
+
+```sh
+nix-build ./router.nix           # build the .rsc (result is the file)
+nix-build ./router.nix -A apply  # build the apply wrapper
+./result/bin/apply admin@192.168.88.1
+nix-build ./router.nix -A vm     # build the test VM runner
+./result/bin/vm-home-router
+```
+
 ## Learn more
 
 - [`examples/basic.nix`](./examples/basic.nix) - an example config.
