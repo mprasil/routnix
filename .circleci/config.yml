@@ -1,7 +1,7 @@
 version: 2.1
 
 jobs:
-  # The non-VM checks: the pure-Nix unit tests.
+  # Pure-Nix unit tests, no VM involved.
   non-vm-checks:
     docker:
       - image: nixos/nix:2.35.2
@@ -17,7 +17,48 @@ jobs:
               .#checks.x86_64-linux.render-unit-tests \
               .#checks.x86_64-linux.module-unit-tests
 
+  # RouterOS CHR integration check
+  vm-checks:
+    parameters:
+      alias:
+        type: string
+      image_cache_path:
+        type: string
+        default: "/tmp/ros-image-cache"
+    docker:
+      - image: nixos/nix:2.35.2
+    environment:
+      NIX_CONFIG: "experimental-features = nix-command flakes"
+    steps:
+      - checkout
+      - restore_cache:
+          key: ros-image-<< parameters.alias >>-{{ checksum "ros_versions.nix" }}
+      - run:
+          name: Restore image store objects
+          command: |
+            if test -d << parameters.image_cache_path >> ; then
+              nix copy --all --from file://<< parameters.image_cache_path >>;
+            else
+              echo "No cache to restore";
+            fi
+      - run:
+          name: Build RouterOS << parameters.alias >> integration check
+          command: nix build -L .#checks.x86_64-linux.routeros-<< parameters.alias >>
+      - run:
+          name: Save image store objects
+          command: nix copy --to file://<< parameters.image_cache_path >> .#ros-image-<< parameters.alias >>
+      - save_cache:
+          key: ros-image-<< parameters.alias >>-{{ checksum "ros_versions.nix" }}
+          paths:
+            - << parameters.image_cache_path >>
+
 workflows:
   checks:
     jobs:
       - non-vm-checks
+      # One parallel job per alias.
+      - vm-checks:
+          name: routeros-<< matrix.alias >>
+          matrix:
+            parameters:
+              alias: ["stable-v7"]
