@@ -1,0 +1,23 @@
+version: 2.1
+
+jobs:
+  # The non-VM checks: the pure-Nix unit tests.
+  non-vm-checks:
+    docker:
+      - image: nixos/nix:2.35.2
+    environment:
+      # The image ships Nix without flakes enabled.
+      NIX_CONFIG: "experimental-features = nix-command flakes"
+    steps:
+      - checkout
+      - run:
+          name: Build non-VM checks
+          command: |
+            nix build -L \
+              .#checks.x86_64-linux.render-unit-tests \
+              .#checks.x86_64-linux.module-unit-tests
+
+workflows:
+  checks:
+    jobs:
+      - non-vm-checks
