@@ -56,15 +56,16 @@
           Permission group for a newly created user.
         '';
       };
-      password = mkOption {
+      initialPassword = mkOption {
         type = types.nullOr types.str;
         default = null;
         description = ''
-          A password to set for newly created user.
+          The password to set on a newly created user. It is only used when
+          the account is first created; an existing account's password is
+          left untouched.
 
-          Note, that password updating is not implemented and the password
-          string is stored in the nix store, so it's recommended to leave it
-          undefined.
+          The string is stored in the nix store, so it's recommended to leave
+          it undefined.
 
           If `null` (default) a random string is generated on-device.
         '';
@@ -133,8 +134,8 @@ in {
       ignore = map (user: {name = user.name;}) createFalseUsers;
       create = item: let
         passwordArg =
-          if item ? password
-          then "\"${item.password}\""
+          if item ? initialPassword
+          then "\"${item.initialPassword}\""
           else
             perPlatform config {
               routeros_v6 = v6_password_generator;
@@ -145,7 +146,7 @@ in {
         mapAttrsToList
         (_: user:
           {inherit (user) name group;}
-          // optionalAttrs (user.password != null) {inherit (user) password;})
+          // optionalAttrs (user.initialPassword != null) {inherit (user) initialPassword;})
         (filterAttrs (_: user: user.create) cfg);
     };
     routeros.config."/user ssh-keys" = {

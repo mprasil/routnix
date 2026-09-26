@@ -168,6 +168,18 @@ in {
     expected = true;
   };
 
+  testNewUserInitialPasswordIsUsedWhenSet = {
+    expr = hasInfix "password=\"hunter2\"" ((evalConfig {
+        users.enable = true;
+        users.users.alice = {initialPassword = "hunter2";};
+      })."/user".create {
+        name = "alice";
+        group = "full";
+        initialPassword = "hunter2";
+      });
+    expected = true;
+  };
+
   # -- per-`device.platform` decisions -----------------------------
   #
   # `lib/tests/per_platform.nix` covers `perPlatform` itself; these
