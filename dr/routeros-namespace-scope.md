@@ -4,12 +4,6 @@ routnix's name and the shape of its top-level options need to fit being
 explicitly RouterOS-only for the foreseeable future, without foreclosing a
 possible future device-agnostic layer.
 
-# Options considered
-
-- Name the project and its options after RouterOS/MikroTik directly.
-- Name the project generically (`routnix`), and nest RouterOS-specific
-  options under a `routeros` namespace rather than the top level.
-
 # Decision
 
 The project is named `routnix` ("router" + "nix") rather than something

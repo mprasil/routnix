@@ -7,17 +7,6 @@ coarser than "every single item" (e.g. a baseline accept rule, then
 service-specific rules, then a final catch-all drop in `/ip firewall
 filter`).
 
-# Options considered
-
-- Whole paths only: `routeros.config` entries are the only thing
-  `before`/`after` can order against each other.
-- Named blocks within a resource, ordered against each other by
-  `before`/`after` (block names), with the resource's whole item list
-  emitted in that order.
-- The above plus promoting a block reference that points at a block in
-  another resource into a whole-resource-level edge, so ordering can
-  cross resources too.
-
 # Decision
 
 A resource's items may be contributed by named, orderable blocks that

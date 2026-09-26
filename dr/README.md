@@ -21,14 +21,9 @@ Every decision record follows this structure:
 One or two sentences stating the goal and what the decision is trying to
 achieve and cover.
 
-# Options considered
-
-The options considered, kept short — one sentence per option, or less if an
-option is self-descriptive.
-
 # Decision
 
-Why this option was chosen over the alternatives.
+What was decided, and why.
 
 A short explanation of what it means in practice, with sample code
 (shortened to the relevant parts, or pseudo-code) if useful.

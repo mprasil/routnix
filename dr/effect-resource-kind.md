@@ -4,13 +4,6 @@ Some RouterOS entries are realized via one or more commands that aren't a
 plain `add` of the item's own fields — e.g. `/user ssh-keys`, where
 creating a key requires writing a file first and then running `import`.
 
-# Options considered
-
-- Extend `"unordered"`'s default-`add` `create` to special-case such
-  paths.
-- A distinct kind with a required, explicit `find` and a `create` that
-  returns arbitrary `.rsc` text.
-
 # Decision
 
 `kind = "effect"` requires an explicit `find` (`item -> attrsOf

@@ -4,12 +4,6 @@
 v7 use different path syntaxes, and rendered `.rsc` scripts need to work on
 both.
 
-# Options considered
-
-- Key by RouterOS v7's `/`-separated path form (e.g. `/ip/firewall/filter`).
-- Key by RouterOS v6's form: leading slash, then space-separated path
-  segments (e.g. `/ip firewall filter`).
-
 # Decision
 
 `routeros.config` is keyed by the v6 form: leading slash, then

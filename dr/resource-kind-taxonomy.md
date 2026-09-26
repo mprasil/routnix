@@ -6,14 +6,6 @@ and some require commands other than a plain `add` to realize an entry.
 Treating all of them uniformly via a single per-item find-then-upsert
 strategy doesn't fit all of these.
 
-# Options considered
-
-- Treat every `routeros.config` entry uniformly, with one reconciliation
-  strategy for all paths.
-- Require each entry to declare an explicit `kind`, defaulting to one
-  strategy when unset.
-- Require each entry to declare an explicit `kind`, with no default.
-
 # Decision
 
 Every `routeros.config` entry declares a required `kind`:

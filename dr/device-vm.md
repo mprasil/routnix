@@ -6,20 +6,15 @@ and boots them (`nix/vms.nix`, `images.nix`). Nothing connected a user's own
 device config to a VM, so trying a config out meant a physical router, or
 hand-driving QEMU and `scp`/`/import` the way the integration check does.
 
-# Options considered
-
-- A `vm` attribute on the package `mkDeviceConfig` returns, alongside
-  `apply`.
-- A separate `lib.mkVm` function taking an already-built device.
-- An optional config argument on the existing `.#ros-vm-*` scripts.
-
 # Decision
 
-The `vm` attribute. It gives a device's VM the same command surface as its
-`apply` (`nix run .#home-router.vm`) and keeps `mkDeviceConfig` the one
-place a router is declared; `lib.mkVm` would have split that story across
-two functions, and the `.#ros-vm-*` scripts are per RouterOS version rather
-than per device, so a config there could only ever be a runtime argument.
+A device gets its VM through a `vm` attribute on the package
+`mkDeviceConfig` returns, alongside `apply`. It gives a device's VM the
+same command surface as its `apply` (`nix run .#home-router.vm`) and keeps
+`mkDeviceConfig` the one place a router is declared: a separate builder
+would split that story across two functions, and the `.#ros-vm-*` scripts
+are per RouterOS version rather than per device, so a config there could
+only ever be a runtime argument.
 
 `vm` is optional and defaults to `{}`, merged over `rosVersion =
 "stable-v7"`, `image = null`, `sshPort = 2222`, `console = false`, so

@@ -5,14 +5,6 @@ top-to-bottom (firewall filter/mangle/nat, routing rules, queue trees) — so
 reordering declared items must actually reorder them on the router, not
 just ensure they're all present.
 
-# Options considered
-
-- Remove every managed entry and re-add them in the declared order on
-  every apply.
-- Resolve each item in turn — adding missing ones already placed as close
-  to their declared position as possible — then a final pass that fixes
-  any drifted positions.
-
 # Decision
 
 `kind = "ordered"` reconciles incrementally in two phases, threading a

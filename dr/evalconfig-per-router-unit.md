@@ -3,13 +3,6 @@
 routnix needs a defined unit of evaluation that turns a set of modules into
 one router's rendered config.
 
-# Options considered
-
-- A single `evalConfig` call that produces config for multiple routers at
-  once.
-- `evalConfig { modules }` evaluates one router's modules and returns that
-  one router's rendered config.
-
 # Decision
 
 `evalConfig { modules }` evaluates `modules` (plus routnix-provided

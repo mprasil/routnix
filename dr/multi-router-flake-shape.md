@@ -5,15 +5,6 @@
 routnix needs a flake output shape and command surface for declaring
 several routers and applying any single one with a simple command.
 
-# Options considered
-
-- Library only: users wire their own flake outputs and write their own
-  apply script.
-- A conventional flake attribute naming each router plus a
-  routnix-provided CLI (a `nixos-rebuild`-style binary) that reads it.
-- Per-router pass-through packages: a helper that returns the rendered
-  `.rsc` as a package with an apply wrapper attached via `passthru`.
-
 # Decision
 
 `lib.mkDeviceConfig { pkgs, modules, name ? "routnix", host ? null,

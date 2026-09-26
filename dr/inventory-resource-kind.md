@@ -6,30 +6,16 @@ the device, and routnix can neither create nor remove them. It still needs
 to adjust aspects of the ones that are present: rename an interface, set an
 interface parameter, enable or disable a package.
 
-# Options considered
-
-## Model via `kind = "effect"`
-
-Reuse `"effect"`'s explicit `find` and arbitrary-command machinery. Doesn't
-fit: `"effect"` expects `create` to bring a new entry into existence and
-always prunes entries no longer declared, whereas inventory entries always
-already exist and must never be created or pruned
-(see [`effect-resource-kind.md`](./effect-resource-kind.md)).
-
-## A new `"inventory"` kind
-
-Explicit identity, an arbitrary per-item action, and no create or prune at
-all; a declared item that isn't found on the device is a hard error. This
-also supersedes the earlier, less concrete `"unmanaged"` idea: `"unmanaged"`
-was the set-only subset of this, and a `set` is just one of the actions
-`"inventory"` can run.
-
 # Decision
 
 `kind = "inventory"` is for entries routnix adjusts in place but never adds
-or removes. It requires an explicit `find` (like `"effect"`) and a
-`configure` function returning arbitrary `.rsc` text (like `"effect"`'s
-`create`, but acting on an entry that already exists):
+or removes. It isn't modeled as `"effect"`, which expects `create` to bring
+a new entry into existence and always prunes entries no longer declared
+(see [`effect-resource-kind.md`](./effect-resource-kind.md)) — inventory
+entries always already exist and must never be created or pruned. It
+requires an explicit `find` (like `"effect"`) and a `configure` function
+returning arbitrary `.rsc` text (like `"effect"`'s `create`, but acting on
+an entry that already exists):
 
 ```nix
 routeros.config."/system package" = {

@@ -5,13 +5,6 @@ tests that don't require booting a RouterOS VM for every change, and that
 pinpoint what a module compiles down to independently of how that gets
 rendered.
 
-# Options considered
-
-- Test everything through the full RouterOS CHR integration check only.
-- Pure-Nix unit tests via nixpkgs' `lib.runTests`, asserting on rendered
-  `.rsc` text and on compiled config attrsets directly, with no VM
-  involved.
-
 # Decision
 
 `lib/tests/` exercises `lib/render_rsc.nix`/`lib/toposort.nix` directly via

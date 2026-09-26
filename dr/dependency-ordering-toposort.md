@@ -4,19 +4,12 @@
 declared `before`/`after`, with cycles reported clearly instead of looping
 forever or producing garbage output.
 
-# Options considered
-
-- An external DAG library (e.g. `denful/dag`).
-- nixpkgs' `lib.textClosureList`.
-- nixpkgs' built-in `lib.toposort`.
-
 # Decision
 
 `lib/toposort.nix` is a thin wrapper around nixpkgs'
 `lib.lists.toposort :: (a -> a -> Bool) -> [a] -> { result } | { cycle, loops }`.
-No external dependency is used — `lib.toposort` already gives structured
-cycle detection, which is all that was needed from either alternative
-originally considered.
+No external dependency is used: `lib.toposort` already gives structured
+cycle detection, which is all this needs.
 
 The comparator:
 

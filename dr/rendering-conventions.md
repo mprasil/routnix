@@ -4,17 +4,6 @@ Rendering `routeros.config` to `.rsc` text needs consistent conventions for
 scalar values, fields some items don't set, paths with nothing to render,
 and ordering within a rendered line vs. within a declared list.
 
-# Options considered
-
-- Scalar rendering: match RouterOS's own literal syntax, or pick a fixed
-  convention regardless of field type.
-- Absent fields: omit them from the query entirely, or render them
-  explicitly as "not set".
-- Paths with empty `items`/`settings`: still emit the path header (and run
-  the mandatory prune sweep), or skip the path entirely.
-- Field/item ordering: canonicalize it, or preserve exactly what's
-  declared/iterated.
-
 # Decision
 
 - `bool` renders as `yes`/`no`; `int`/`str` render double-quoted (`"22"`,

@@ -5,17 +5,6 @@ pruning, `ignore`, ordering) against a real RouterOS CHR VM without every
 failure looking the same, and without RouterOS's own success/failure
 reporting being trusted blindly.
 
-# Options considered
-
-- One large config applied once, with a single broad assertion covering
-  everything.
-- One focused `checks/configs/*.nix` file per behavior, one subtest per
-  file, each cleaning up after itself.
-- The same per-file structure, but letting a few related subtests
-  intentionally build on state left behind by the previous one.
-- Trust `/import`'s exit code alone to determine success.
-- Also inspect `/import`'s textual output for error-looking text.
-
 # Decision
 
 Each `checks/configs/*.nix` file isolates one behavior (e.g.

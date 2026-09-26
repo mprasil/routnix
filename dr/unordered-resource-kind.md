@@ -4,13 +4,6 @@ Some RouterOS tables only care about presence, not position (routes,
 address-lists, VLANs): an entry either exists or it doesn't, and order is
 irrelevant.
 
-# Options considered
-
-- Require an explicit `find` function per entry, the same as `kind =
-  "effect"`.
-- Derive identity automatically from each item's own declared fields, with
-  no `find` option for this kind.
-
 # Decision
 
 `kind = "unordered"` derives identity automatically from each item's own

@@ -5,14 +5,6 @@ non-flake users had no stable import path into the library: reaching it
 meant importing the internal `lib/` directory (or a file inside it)
 directly, coupling them to routnix's file layout.
 
-# Options considered
-
-- Flakes only: non-flake users import `lib/` themselves and accept the
-  coupling to the internal layout.
-- A root `default.nix` that re-exports the library, and the packages and
-  checks it can build, for a concrete `pkgs`, mirroring the flake's
-  outputs.
-
 # Decision
 
 The root `default.nix`:
