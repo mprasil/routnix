@@ -9,11 +9,13 @@ reporting being trusted blindly.
 
 Each `checks/configs/*.nix` file isolates one behavior (e.g.
 `ordered_basic.nix`, `unordered_prune.nix`, `effect_basic.nix`), and
-`checks/routeros_test.py` runs one subtest per file — copying the rendered
-`.rsc` to the VM over scp, running `/import`, and inspecting the result
-over SSH — so a failure names the specific feature that broke rather than
-"the result isn't as expected". Most subtests clean up whatever path they
-touched afterward (`remove [find ...]`).
+`checks/routeros_test.py` drives one subtest per behavior — copying the
+rendered `.rsc` to the VM over scp, running `/import`, and inspecting the
+result over SSH — so a failure names the specific feature that broke
+rather than "the result isn't as expected". A config can back more than
+one subtest (e.g. `ordered_basic.nix` is applied by the add, idempotent,
+and reorder subtests). Most subtests clean up whatever path they touched
+afterward (`remove [find ...]`).
 
 The `"ordered"`-kind and `users_*` groups are the exception, deliberately
 building on the state the previous subtest left behind (add-in-order,
@@ -22,7 +24,9 @@ idempotent reapply, drift restoration via `move`, a field edit, then
 the `sshPubKeys = null` vs. `[ ]` distinction for `users_*`), since both
 kinds' mandatory prune makes each apply a clean slate anyway. Every
 `users_*` config declares `admin` with `create = false`, the account
-`routeros_test.py` itself connects over SSH as.
+`routeros_test.py` itself connects over SSH as. The `firewall_*` group runs
+last: its config's mandatory prune clears the whole `/ip firewall filter`
+table that the `"ordered"` group's assertions rely on.
 
 All subtests run regardless of earlier failures. `/import`'s own textual
 output is checked for error-looking text, not just its exit code, which

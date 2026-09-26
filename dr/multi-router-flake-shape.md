@@ -7,13 +7,13 @@ several routers and applying any single one with a simple command.
 
 # Decision
 
-`lib.mkDeviceConfig { pkgs, modules, name ? "routnix", host ? null,
-openssh ? pkgs.openssh, sshOptions ? [], scpOptions ? [] }` evaluates
-`modules` via `evalConfig`, renders the `.rsc` as a `pkgs.writeText`
-package, and attaches a `writeShellApplication` apply wrapper as its
-`apply` attribute (`rscPackage // { apply = ...; }`, the same `passthru`
-shape `pkgs.foo.passthru.*` uses in nixpkgs). Users declare one
-`mkDeviceConfig` call per router as an ordinary flake package:
+`lib.mkDeviceConfig` (see `lib/mk_device_config.nix` for its exact
+arguments) evaluates `modules` via `evalConfig`, renders the `.rsc` as a
+`pkgs.writeText` package, and attaches a `writeShellApplication` apply
+wrapper as its `apply` attribute (`rscPackage // { apply = ...; }`,
+similar to `passthru` shape `pkgs.foo.passthru.*` uses in nixpkgs). It
+also attaches a `vm` runner (see [`device-vm.md`](./device-vm.md)). Users
+declare one `mkDeviceConfig` call per router as an ordinary flake package:
 
 ```nix
 packages.<system>.home-router = routnix.lib.mkDeviceConfig {

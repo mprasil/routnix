@@ -7,13 +7,10 @@ irrelevant.
 # Decision
 
 `kind = "unordered"` derives identity automatically from each item's own
-fields — no `find` option, and no escape hatch yet to override it. It's
-rendered as `print count-only where k=v ...`, compared against `0`, rather
-than `find where ...` compared against `""`; a plain count sidesteps how
-`find` behaves when a query matches more than one entry. A field some
-items set and others don't renders as `!k` (RouterOS's "this field isn't
-set") for the items that omit it, so items aren't made indistinguishable
-by an elided field.
+fields — no `find` option, and no escape hatch yet to override it. A field
+some items set and others don't renders as `!k` (RouterOS's "this field
+isn't set") for the items that omit it, so items aren't made
+indistinguishable by an elided field.
 
 `create` (`item -> str`, raw `.rsc` text) defaults to a plain `add` of the
 item's own fields, which is normally all this kind needs.

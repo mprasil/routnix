@@ -42,7 +42,8 @@ treats a fully-qualified one-line command as a one-off, not a permanent
 context switch — routnix doesn't need its own path-tracking mechanism for
 this.
 
-This is distinct from the still-unimplemented "unmanaged" idea (see
-[`../rfc/unmanaged-resource-kind.md`](../rfc/unmanaged-resource-kind.md))
-— `"effect"` is for resources that *are* created via a command, just not
-`add`.
+This is distinct from `"inventory"` (see
+[`inventory-resource-kind.md`](./inventory-resource-kind.md)): `"effect"`
+is for resources that *are* created via a command, just not `add`, while
+`"inventory"` adjusts entries that already exist and are never created or
+removed.
