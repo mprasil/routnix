@@ -227,16 +227,24 @@ nix-build ./router.nix -A vm     # build the test VM runner
 
 ## Test drive
 
-You can run VM with [example configuration](./examples/basic.nix) applied right
-from this repo with:
+If you have flakes enabled, you can run VM with [example
+configuration](./examples/basic.nix) applied right from this repo with:
 
 ```sh
-nix run .#example.vm
+nix run github:mprasil/routnix#example.vm
 ```
 
-The rendered script on its own is available with `nix build .#example && cat
-result`, and a plain CHR VM without any config with `nix run
-.#ros-vm-<alias>` (e.g. `.#ros-vm-stable-v7`; see `ros_versions.nix` for the
-aliases).
+The rendered script on its own is available with:
+
+```sh
+nix build github:mprasil/routnix#example && cat result
+```
+
+Plain CHR VM without any config:
+
+```sh
+# check versions in ros_versions.nix for available options
+nix run github:mprasil/routnix#ros-vm-stable-v7
+```
 
 
