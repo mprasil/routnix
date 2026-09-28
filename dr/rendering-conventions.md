@@ -16,10 +16,10 @@ and ordering within a rendered line vs. within a declared list.
   [`unordered-resource-kind.md`](./unordered-resource-kind.md)), so
   items aren't made indistinguishable by an elided field.
 - A `"settings"` entry with empty `settings`, and an `"inventory"` entry
-  with empty `items`, render nothing — no path header is emitted. The
-  table kinds (`"ordered"`/`"unordered"`/`"effect"`) always emit the path
-  header and run their mandatory prune sweep, even with an empty `items`
-  list (see `checks/configs/*_prune_empty.nix`).
+  with empty `items`, render nothing but a `preScript`, if it has one, and
+  never a path header. The table kinds (`"ordered"`/`"unordered"`/`"effect"`)
+  always emit the path header and run their mandatory prune sweep, even
+  with an empty `items` list (see `checks/configs/*_prune_empty.nix`).
 - Field order *within* one rendered line follows Nix's `attrsOf` iteration
   (alphabetical), since it doesn't matter to RouterOS. Item *list* order is
   always preserved exactly as declared, since that's what matters for

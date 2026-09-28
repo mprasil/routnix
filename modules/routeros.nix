@@ -49,6 +49,19 @@
         '';
       };
 
+      preScript = mkOption {
+        type = types.lines;
+        default = "";
+        description = ''
+          Freehand `.rsc` commands run before this entry's configuration,
+          e.g. enabling a feature the path's entries depend on. They run
+          before the path is entered, so they need to use absolute paths.
+          They are expected to succeed: one that fails stops the run and
+          leaves the router partly configured, so this isn't a way to bail
+          out on a router that isn't ready.
+        '';
+      };
+
       before = mkOption {
         type = types.listOf types.str;
         default = [];
