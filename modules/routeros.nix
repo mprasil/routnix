@@ -157,6 +157,19 @@
     };
   };
 in {
+  options.routeros.preCheck = mkOption {
+    type = types.lines;
+    default = "";
+    description = ''
+      Freehand `.rsc` commands run before any configuration is applied.
+      Intended for preconditions, e.g. checking that ipv6 is enabled
+      before ipv6 firewall rules are applied. They run before any
+      configuration change, so they can only inspect state the router
+      already has, not anything routnix itself sets up. A failing check
+      stops the run before anything is configured.
+    '';
+  };
+
   options.routeros.config = mkOption {
     type = types.attrsOf (types.submodule entryModule);
     default = {};

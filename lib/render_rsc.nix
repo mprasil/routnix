@@ -67,9 +67,13 @@ in {
   inherit renderValue renderArgs;
 
   # Renders `rosConfig` (as produced by `modules/routeros.nix`) into a
-  # single `.rsc` script, with entries emitted in `order`.
-  renderConfig = rosConfig: order: let
-    chunks = filter (c: c != null) (map (path: renderEntry path rosConfig.${path}) order);
+  # single `.rsc` script: `preCheck` (freehand `.rsc`, possibly empty)
+  # ahead of the entries emitted in `order`.
+  renderConfig = rosConfig: order: preCheck: let
+    chunks =
+      filter (c: c != null && c != "")
+      ([ (trim preCheck) ]
+        ++ map (path: renderEntry path rosConfig.${path}) order);
   in
     concatStringsSep "\n\n" chunks + "\n";
 }
