@@ -368,6 +368,47 @@ def test_settings_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
     assert_contains(out, "routnix-test-router", context="/system identity print (reapply)")
 
 
+def test_precheck_pass(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Top-level `routeros.preCheck`: freehand .rsc runs ahead of the
+    configuration, and a passing check doesn't stop it applying."""
+    import_config(ros, rsc_dir, "precheck_pass")
+    note = ros.ssh_cmd("/system note print")
+    assert_contains(note, "routnix-test-precheck-ran", context="/system note print (preCheck ran)")
+    out = ros.ssh_cmd("/system identity print")
+    assert_contains(out, "routnix-test-precheck-pass", context="/system identity print")
+    ros.ssh_cmd('/system note set note=""')
+
+
+def test_precheck_fail_aborts(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """A failing `routeros.preCheck` stops the run before any later
+    command executes: the check's own output and error are reported, but
+    the marker a later entry's `preScript` prints never appears.
+
+    RouterOS doesn't reliably turn a script's `:error` into a non-zero
+    `/import` exit code, so the outcome is judged from the output alone,
+    taken from the command's stdout when it succeeds or from `ssh_cmd`'s
+    failure message when it doesn't."""
+    local = rsc_dir / "precheck_fail.rsc"
+    remote = "routnix-precheck_fail.rsc"
+    ros.scp_to_ros(local, remote)
+    try:
+        output = ros.ssh_cmd(f"/import {remote}", timeout=60)
+    except RuntimeError as exc:
+        output = str(exc)
+
+    assert_contains(
+        output,
+        "routnix-test-precheck-ran",
+        "routnix-test-precheck-failed",
+        context="/import precheck_fail output",
+    )
+    assert_not_contains(
+        output,
+        "routnix-test-precheck-should-not-run",
+        context="/import precheck_fail output (later commands must not run)",
+    )
+
+
 def test_effect_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
     """kind = "effect": `create` runs custom .rsc text (not a plain
     `add`), guarded by `find`; a line targeting a different absolute
@@ -612,6 +653,8 @@ SUBTESTS: list[tuple[str, Callable[[RouterOsMachine, Path], None]]] = [
     ("unordered_prune_empty", test_unordered_prune_empty),
     ("settings_apply", test_settings_apply),
     ("settings_idempotent", test_settings_idempotent),
+    ("precheck_pass", test_precheck_pass),
+    ("precheck_fail", test_precheck_fail_aborts),
     ("effect_add", test_effect_add),
     ("effect_idempotent", test_effect_idempotent),
     ("effect_prune", test_effect_prune),

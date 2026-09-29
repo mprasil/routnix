@@ -21,8 +21,12 @@
       modules = providedModules ++ modules;
     };
     order = extendedLib.routnix.sortEntries evaluated.config.routeros.config;
+    rsc = extendedLib.routnix.renderConfig
+      evaluated.config.routeros.config
+      order
+      evaluated.config.routeros.preCheck;
   in
-    evaluated // {rsc = extendedLib.routnix.renderConfig evaluated.config.routeros.config order;};
+    evaluated // {inherit rsc;};
 in {
   inherit (extendedLib) routnix;
   inherit evalConfig;
