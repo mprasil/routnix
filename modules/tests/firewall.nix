@@ -1,5 +1,6 @@
 {
   evalConfig,
+  evalConfigFull,
   dataFields,
   throws,
   lib,
@@ -210,5 +211,244 @@ in {
         };
       })."/ip firewall filter");
     expected = true;
+  };
+
+  # -- per-family emission --------------------------------------------
+
+  # `family` defaults to `"both"`: a block's rules land in both tables.
+  testBlockDefaultFamilyIsBoth = let
+    cfg' = evalConfig {
+      firewall.filter.enable = true;
+      firewall.filter.rules.allowSsh = {
+        chain = "input";
+        rules = [{action = "accept"; comment = "ssh";}];
+      };
+    };
+  in {
+    expr = {
+      ipv4 = ruleComments cfg'."/ip firewall filter";
+      ipv6 = ruleComments cfg'."/ipv6 firewall filter";
+    };
+    expected = {
+      ipv4 = ["ssh"];
+      ipv6 = ["ssh"];
+    };
+  };
+
+  # `family = "ipv4"` keeps the block's rules out of `/ipv6 firewall
+  # filter`, which is still managed (and so pruned to empty).
+  testBlockFamilyIpv4StaysOutOfIpv6Table = let
+    cfg' = evalConfig {
+      firewall.filter.enable = true;
+      firewall.filter.rules.allowSsh = {
+        family = "ipv4";
+        chain = "input";
+        rules = [{action = "accept"; comment = "ssh";}];
+      };
+    };
+  in {
+    expr = {
+      ipv4 = ruleComments cfg'."/ip firewall filter";
+      ipv6 = ruleComments cfg'."/ipv6 firewall filter";
+    };
+    expected = {
+      ipv4 = ["ssh"];
+      ipv6 = [];
+    };
+  };
+
+  # `family = "ipv6"` keeps the block's rules out of `/ip firewall
+  # filter`, which is still managed (and so pruned to empty).
+  testBlockFamilyIpv6StaysOutOfIpv4Table = let
+    cfg' = evalConfig {
+      firewall.filter.enable = true;
+      firewall.filter.rules.allowIcmp6 = {
+        family = "ipv6";
+        chain = "input";
+        rules = [{action = "accept"; comment = "icmp6";}];
+      };
+    };
+  in {
+    expr = {
+      ipv4 = ruleComments cfg'."/ip firewall filter";
+      ipv6 = ruleComments cfg'."/ipv6 firewall filter";
+    };
+    expected = {
+      ipv4 = [];
+      ipv6 = ["icmp6"];
+    };
+  };
+
+  # Blocks of different families keep their relative order within the
+  # table they land in. `after` edges (across families here) pin the
+  # block order, since blocks with no ordering edge between them may
+  # fall in either order.
+  testFamilyFilteringPreservesBlockOrder = let
+    cfg' = evalConfig {
+      firewall.filter.enable = true;
+      firewall.filter.rules = {
+        a4 = {
+          family = "ipv4";
+          chain = "input";
+          rules = [{action = "accept"; comment = "a4";}];
+        };
+        b6 = {
+          family = "ipv6";
+          after = ["a4"];
+          chain = "input";
+          rules = [{action = "accept"; comment = "b6";}];
+        };
+        c4 = {
+          family = "ipv4";
+          after = ["b6"];
+          chain = "input";
+          rules = [{action = "accept"; comment = "c4";}];
+        };
+        d6 = {
+          family = "ipv6";
+          after = ["c4"];
+          chain = "input";
+          rules = [{action = "accept"; comment = "d6";}];
+        };
+      };
+    };
+  in {
+    expr = {
+      ipv4 = ruleComments cfg'."/ip firewall filter";
+      ipv6 = ruleComments cfg'."/ipv6 firewall filter";
+    };
+    expected = {
+      ipv4 = ["a4" "c4"];
+      ipv6 = ["b6" "d6"];
+    };
+  };
+
+  # `firewall.filter.family` is the default for blocks that don't set
+  # their own, and a block may still override it.
+  testModuleFamilyIsDefaultForBlocks = let
+    cfg' = evalConfig {
+      firewall.filter.enable = true;
+      firewall.filter.family = "ipv6";
+      firewall.filter.rules.omit = {
+        chain = "input";
+        rules = [{action = "accept"; comment = "from-module";}];
+      };
+      firewall.filter.rules.override = {
+        family = "ipv4";
+        chain = "input";
+        rules = [{action = "accept"; comment = "overridden";}];
+      };
+    };
+  in {
+    expr = {
+      ipv4 = ruleComments cfg'."/ip firewall filter";
+      ipv6 = ruleComments cfg'."/ipv6 firewall filter";
+    };
+    expected = {
+      ipv4 = ["overridden"];
+      ipv6 = ["from-module"];
+    };
+  };
+
+  # `"ipv4only"` manages only `/ip firewall filter`.
+  testModuleFamilyIpv4OnlyManagesIpv4TableOnly = let
+    cfg' = evalConfig {
+      firewall.filter.enable = true;
+      firewall.filter.family = "ipv4only";
+      firewall.filter.rules.allowSsh = {
+        chain = "input";
+        rules = [{action = "accept"; comment = "ssh";}];
+      };
+    };
+  in {
+    expr = {
+      hasIpv6 = cfg' ? "/ipv6 firewall filter";
+      ipv4 = ruleComments cfg'."/ip firewall filter";
+    };
+    expected = {
+      hasIpv6 = false;
+      ipv4 = ["ssh"];
+    };
+  };
+
+  # `"ipv4only"` rejects a block that targets ipv6.
+  testModuleFamilyIpv4OnlyRejectsIpv6Block = {
+    expr = throws ((evalConfig {
+        firewall.filter.enable = true;
+        firewall.filter.family = "ipv4only";
+        firewall.filter.rules.allowIcmp6 = {
+          family = "ipv6";
+          chain = "input";
+        };
+      })."/ip firewall filter");
+    expected = true;
+  };
+
+  # Enabling with no blocks manages both tables.
+  testEnabledWithNoBlocksManagesBothTables = let
+    cfg' = evalConfig {firewall.filter.enable = true;};
+  in {
+    expr = {
+      ipv4 = dataFields cfg'."/ip firewall filter";
+      ipv6 = dataFields cfg'."/ipv6 firewall filter";
+    };
+    expected = {
+      ipv4 = {kind = "ordered"; items = []; ignore = [];};
+      ipv6 = {kind = "ordered"; items = []; ignore = [];};
+    };
+  };
+
+  # -- RouterOS v6 ipv6 precondition ----------------------------------
+
+  # On v7 ipv6 is always available, so no precondition.
+  testNoIpv6PreCheckOnV7 = {
+    expr = (evalConfigFull {
+        device.platform = "routeros_v7";
+        firewall.filter.enable = true;
+        firewall.filter.rules.allowSsh = {
+          chain = "input";
+          rules = [{action = "accept"; comment = "ssh";}];
+        };
+      })
+      .routeros.preCheck;
+    expected = "";
+  };
+
+  # On v6 the managed ipv6 table is guarded by a package check.
+  testIpv6PreCheckOnV6 = {
+    expr = lib.hasInfix "name=\"ipv6\" disabled=no" (evalConfigFull {
+        device.platform = "routeros_v6";
+        firewall.filter.enable = true;
+        firewall.filter.rules.allowSsh = {
+          chain = "input";
+          rules = [{action = "accept"; comment = "ssh";}];
+        };
+      })
+      .routeros.preCheck;
+    expected = true;
+  };
+
+  # `"ipv4only"` never manages ipv6, so no precondition on v6 either.
+  testNoIpv6PreCheckOnV6WithIpv4Only = {
+    expr = (evalConfigFull {
+        device.platform = "routeros_v6";
+        firewall.filter.enable = true;
+        firewall.filter.family = "ipv4only";
+      })
+      .routeros.preCheck;
+    expected = "";
+  };
+
+  # Disabled: nothing is managed, including the precondition.
+  testNoIpv6PreCheckWhenDisabled = {
+    expr = (evalConfigFull {
+        device.platform = "routeros_v6";
+        firewall.filter.rules.allowSsh = {
+          chain = "input";
+          rules = [{action = "accept"; comment = "ssh";}];
+        };
+      })
+      .routeros.preCheck;
+    expected = "";
   };
 }
