@@ -6,11 +6,15 @@
 
   # Evaluates a small inline top-level module (e.g. `{ users.enable =
   # true; ... }`) through the full `evalConfig` pipeline and returns the
-  # resulting `routeros.config` attrset -- what a module compiles its
-  # options down to, *before* rendering. `lib/tests/` already covers
-  # `lib/render_rsc.nix`'s rendering of that attrset into `.rsc` text, so
-  # these tests stay focused on each module's own option -> config logic.
-  evalConfig = module: (routnix.evalConfig {modules = [module];}).config.routeros.config;
+  # resulting `config` attrset. `lib/tests/` already covers
+  # `lib/render_rsc.nix`'s rendering of `routeros.config` into `.rsc`
+  # text, so these tests stay focused on each module's own option ->
+  # config logic.
+  evalConfigFull = module: (routnix.evalConfig {modules = [module];}).config;
+
+  # Just the `routeros.config` subtree, what a module compiles its
+  # options down to, *before* rendering.
+  evalConfig = module: (evalConfigFull module).routeros.config;
 
   # Strips a `routeros.config.<path>` entry down to its plain-data
   # fields for comparison -- `find`/`create` are functions and can't go
@@ -48,7 +52,7 @@
 
   # Arguments handed to every sibling test file in this directory.
   testFileArgs = {
-    inherit lib evalConfig dataFields throws;
+    inherit lib evalConfig evalConfigFull dataFields throws;
   };
 
   # Every `*.nix` file in this directory other than this one is a

@@ -36,6 +36,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--qemu",     required=True, help="Path to qemu-system-x86_64")
     p.add_argument("--ssh",      required=True, help="Path to ssh binary")
     p.add_argument("--scp",      required=True, help="Path to scp binary")
+    p.add_argument("--platform", required=True,
+                   choices=["routeros_v6", "routeros_v7"],
+                   help="device.platform the .rsc files were rendered for")
     p.add_argument("--ssh-port", type=int, default=2222,
                    help="Host TCP port forwarded to RouterOS SSH")
     p.add_argument("--out-dir",  required=True,
@@ -146,10 +149,15 @@ def import_config(ros: RouterOsMachine, rsc_dir: Path, config_name: str) -> str:
 # ----------------------------------------------------------------------------
 
 FILTER = "/ip firewall filter"
+FILTER6 = "/ipv6 firewall filter"
 ADDRESS_LIST = "/ip firewall address-list"
 USER = "/user"
 USER_SSH_KEYS = "/user ssh-keys"
 ETHERNET = "/interface ethernet"
+
+# Set from --platform in main(); subtests whose expected router state
+# depends on the RouterOS major version read it.
+PLATFORM = "routeros_v7"
 
 
 def test_ordered_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
@@ -612,10 +620,11 @@ def test_users_existing_user_keys(ros: RouterOsMachine, rsc_dir: Path) -> None:
 
 
 def test_firewall_filter_block_ordering(ros: RouterOsMachine, rsc_dir: Path) -> None:
-    """The `firewall.filter` module: named blocks compile down to a
-    single kind = "ordered" /ip firewall filter table, ordered by
-    block-level `before`/`after`, so the declared rules land in the
-    intended order."""
+    """The `firewall.filter` module: named blocks compile down to
+    kind = "ordered" filter tables, ordered by block-level
+    `before`/`after`, so the declared rules land in the intended order.
+    The ipv6 table is managed on v7 only (the v6 image has no ipv6
+    package), and uses icmpv6 where the ipv4 table uses icmp."""
     import_config(ros, rsc_dir, "firewall_basic")
     out = ros.ssh_cmd(f"{FILTER} print")
     assert_order(
@@ -628,11 +637,25 @@ def test_firewall_filter_block_ordering(ros: RouterOsMachine, rsc_dir: Path) -> 
     )
     assert_eq(count_only(ros, FILTER), 4, context=f"{FILTER} count after firewall_basic")
 
+    if PLATFORM == "routeros_v7":
+        out6 = ros.ssh_cmd(f"{FILTER6} print")
+        assert_order(
+            out6,
+            "routnix-test-fw-established",
+            "routnix-test-fw-ssh",
+            "routnix-test-fw-icmp6",
+            "routnix-test-fw-drop",
+            context=f"{FILTER6} print after firewall_basic",
+        )
+        assert_eq(count_only(ros, FILTER6), 4, context=f"{FILTER6} count after firewall_basic")
+
 
 def test_firewall_filter_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
-    """Reapplying the module-generated table must not duplicate rules."""
+    """Reapplying the module-generated tables must not duplicate rules."""
     import_config(ros, rsc_dir, "firewall_basic")
     assert_eq(count_only(ros, FILTER), 4, context=f"{FILTER} count after reapplying firewall_basic")
+    if PLATFORM == "routeros_v7":
+        assert_eq(count_only(ros, FILTER6), 4, context=f"{FILTER6} count after reapplying firewall_basic")
 
 
 # Ordering matters within the "ordered_*" and "users_*" groups -- each
@@ -674,7 +697,10 @@ SUBTESTS: list[tuple[str, Callable[[RouterOsMachine, Path], None]]] = [
 
 
 def main() -> None:
+    global PLATFORM
+
     args = parse_args()
+    PLATFORM = args.platform
 
     with tempfile.TemporaryDirectory() as _tmp:
         tmp_dir = Path(_tmp)

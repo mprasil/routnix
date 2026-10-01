@@ -82,6 +82,7 @@ in
         --qemu    "${pkgs.qemu_test}/bin/qemu-system-x86_64" \
         --ssh     "${pkgs.openssh}/bin/ssh" \
         --scp     "${pkgs.openssh}/bin/scp" \
+        --platform "${platform}" \
         --out-dir "$out"
 
       touch "$out/success"
