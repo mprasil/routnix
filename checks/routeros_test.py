@@ -395,7 +395,10 @@ def test_precheck_fail_aborts(ros: RouterOsMachine, rsc_dir: Path) -> None:
     RouterOS doesn't reliably turn a script's `:error` into a non-zero
     `/import` exit code, so the outcome is judged from the output alone,
     taken from the command's stdout when it succeeds or from `ssh_cmd`'s
-    failure message when it doesn't."""
+    failure message when it doesn't. RouterOS v6 exits the script
+    without echoing the `:error` message to that output at all -- it
+    lands in the system log instead -- so the log's last lines are
+    consulted when the error marker isn't found there."""
     local = rsc_dir / "precheck_fail.rsc"
     remote = "routnix-precheck_fail.rsc"
     ros.scp_to_ros(local, remote)
@@ -403,6 +406,13 @@ def test_precheck_fail_aborts(ros: RouterOsMachine, rsc_dir: Path) -> None:
         output = ros.ssh_cmd(f"/import {remote}", timeout=60)
     except RuntimeError as exc:
         output = str(exc)
+
+    if "routnix-test-precheck-failed" not in output:
+        # The :error line is the last thing logged before this
+        # point; only the tail is used, to avoid matching messages
+        # from earlier subtests.
+        log = ros.ssh_cmd("/log print without-paging")
+        output += "\n" + "\n".join(log.splitlines()[-2:])
 
     assert_contains(
         output,
