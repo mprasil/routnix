@@ -1,6 +1,25 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended"
-  ]
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "extends": [
+        "config:recommended"
+    ],
+    "packageRules": [
+        {
+            "description": "Automerge non-major changes",
+            "matchUpdateTypes": ["minor", "patch", "pin", "digest", "lockFileMaintenance"],
+            "automerge": true
+        },
+        {
+            "description": "Do not automatically update nixos version",
+            "matchDepNames": ["nixpkgs"],
+            "matchUpdateTypes": ["major", "minor"],
+            "labels": ["update-nixos"],
+            "automerge": false
+        }
+    ],
+    "lockFileMaintenance": {
+        "enabled": true,
+        "automerge": true
+    },
+    "automergeStrategy": "rebase"
 }
