@@ -4,6 +4,7 @@
   inherit (import ./render_rsc/common.nix {inherit lib;}) renderValue renderArgs renderQuery;
   inherit (import ./render_rsc/ordered.nix {inherit lib;}) renderOrderedItems;
   inherit (import ./render_rsc/unordered.nix {inherit lib;}) deriveFind renderUnordered;
+  inherit (import ./render_rsc/keyed.nix {inherit lib;}) renderKeyed;
   inherit (import ./render_rsc/effect.nix {inherit lib;}) renderEffect;
   inherit (import ./render_rsc/inventory.nix {inherit lib;}) renderInventory;
 
@@ -29,38 +30,48 @@
       else script + "\n\n" + body;
 
   renderEntry = path: entry: let
-    # "effect"/"inventory" require an explicit `find`; "ordered"/
-    # "unordered" always derive their own from `items` instead, folding
-    # in `ignore`'s fields too, since both kinds always prune.
-    find =
+    # "ordered"/"unordered" derive their own identity from `items`,
+    # folding in `ignore`'s fields too, since both always prune;
+    # "keyed" uses the declared `key`; the rest use an explicit `find`.
+    identity =
       if entry.kind == "ordered" || entry.kind == "unordered"
       then deriveFind (entry.items ++ entry.ignore)
+      else if entry.kind == "keyed"
+      then entry.key
       else entry.find;
-    # All three rely on `find` to tell items apart: two items whose
-    # `find` produces the same query would collapse into one entry.
+    # Every kind but "settings" relies on identity to tell items apart:
+    # two items with the same identity would collapse into one entry.
     queries =
       if entry.kind == "settings"
       then []
-      else map find entry.items;
+      else map identity entry.items;
     duplicate = filter (q: builtins.length (filter (q2: q2 == q) queries) > 1) queries;
+    identityOption =
+      if entry.kind == "keyed"
+      then "key"
+      else "find";
 
     body =
       if (entry.kind == "effect" || entry.kind == "inventory") && entry.find == null
       then throw ''routnix: `find` is required for kind = "${entry.kind}" (at ${path})''
+      else if entry.kind == "keyed" && entry.key == null
+      then throw ''routnix: `key` is required for kind = "keyed" (at ${path})''
       else if entry.kind == "inventory" && entry.configure == null
       then throw ''routnix: `configure` is required for kind = "inventory" (at ${path})''
       else if duplicate != []
-      then throw ''routnix: `find` doesn't uniquely identify every item in ${path} -- multiple items produce ${renderQuery (builtins.head duplicate)}''
+      then throw ''routnix: `${identityOption}` doesn't uniquely identify every item in ${path} -- multiple items produce ${renderQuery (builtins.head duplicate)}''
       else if entry.kind == "settings"
       then renderSettings path entry.settings
       else if entry.kind == "ordered"
-      then renderOrderedItems path find entry.items entry.ignore
+      then renderOrderedItems path identity entry.items entry.ignore
       else if entry.kind == "unordered"
-      then renderUnordered path find entry
+      then renderUnordered path identity entry
+      else if entry.kind == "keyed"
+      then renderKeyed path identity entry
       else if entry.kind == "inventory"
-      then renderInventory path find entry
+      then renderInventory path identity entry
       else # "effect"
-        renderEffect path find entry;
+        renderEffect path identity entry;
   in
     renderPreScript entry.preScript body;
 in {

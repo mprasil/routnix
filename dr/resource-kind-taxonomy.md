@@ -9,9 +9,10 @@ strategy doesn't fit all of these.
 # Decision
 
 Every `routeros.config` entry declares a required `kind`:
-`"ordered"`, `"unordered"`, `"settings"`, `"effect"`, or `"inventory"` —
-see [`ordered-resource-kind.md`](./ordered-resource-kind.md),
+`"ordered"`, `"unordered"`, `"keyed"`, `"settings"`, `"effect"`, or
+`"inventory"` — see [`ordered-resource-kind.md`](./ordered-resource-kind.md),
 [`unordered-resource-kind.md`](./unordered-resource-kind.md),
+[`keyed-resource-kind.md`](./keyed-resource-kind.md),
 [`settings-resource-kind.md`](./settings-resource-kind.md),
 [`effect-resource-kind.md`](./effect-resource-kind.md), and
 [`inventory-resource-kind.md`](./inventory-resource-kind.md) for each
@@ -19,8 +20,8 @@ kind's own reconciliation semantics. There is no default: picking a kind is
 a meaningful decision about how RouterOS treats that table, not something
 safe to fall back on.
 
-For every kind except `"settings"`, `find` (explicit or derived, depending
-on the kind) must actually distinguish items from each other: rendering
-throws if two items in the same `items` list produce the same `find`
-result, rather than letting them silently collapse into a single RouterOS
-entry instead of two.
+For every kind except `"settings"`, identity (an explicit `find` or `key`,
+or one derived from each item's own fields, depending on the kind) must
+actually distinguish items from each other: rendering throws if two items
+in the same `items` list produce the same identity, rather than letting
+them silently collapse into a single RouterOS entry instead of two.

@@ -1,49 +1,37 @@
 # Context
 
-Identity (how an existing entry is matched, e.g. via `find`) and ownership
-(how routnix knows an entry is actually safe to update, reposition, or
-remove because it created it) are deliberately separate concerns. Today,
-`find`/derived identity matches on value alone, with no ownership tag, so
-routnix can't distinguish "an entry we created" from "an entry that
-happens to match."
+Identity (how an existing entry is matched) and ownership (how routnix knows
+an entry is safe to update, reposition, or remove because it created it) are
+separate concerns. The `"keyed"` kind (see
+[`../dr/keyed-resource-kind.md`](../dr/keyed-resource-kind.md)) writes a
+synthetic `routnix:<shape>:<value>` tag into `comment`, which it uses to tell
+an already-in-sync entry from a drifted or foreign one, but its pruning is
+unscoped like the other table kinds': anything neither declared nor
+`ignore`d is removed, so the tag does not make pruning ownership-precise.
+The kinds that predate it — `"unordered"`, `"ordered"`, and `"effect"` —
+have no tag at all, matching on value or composite fields, with `ignore` as
+the only protection.
 
 # Options considered
 
-## Match on value alone (current behavior)
+## Prune unscoped, `ignore` as the escape hatch (current)
 
-`find`/derived identity as implemented today for all of `"unordered"`,
-`"ordered"`, and `"effect"` (see their respective `dr/` files). Mandatory
-pruning removes anything not in `$managed` or `ignore`, with `ignore` as
-the only escape hatch — an approximation of ownership, not the real thing.
-Risk: a coincidentally-matching pre-existing entry (a dynamic lease, a
-manually-added rule) can be silently treated as "already there," updated,
-repositioned (for `"ordered"`), or pruned, even though routnix never
-created it. No silent "adoption" is *intended*, but nothing enforces that.
+Every table kind removes anything neither declared nor `ignore`d, and relies
+on `ignore` to protect entries managed by hand or by another tool. Uniform
+and predictable, but a coincidentally-matching pre-existing entry (a dynamic
+lease, a manually-added rule) can be silently adopted, updated, repositioned
+(`"ordered"`), or pruned even though routnix never created it, and `ignore`
+has to enumerate every such entry by hand.
 
-## Synthetic ownership tag written into `comment`
+## Make pruning ownership-precise via the tag
 
-Default identity/lookup mechanism becomes a tag (e.g.
-`routnix:<block>:<name>`) written into `comment`, with any user-supplied
-comment text appended after it, decoupled from whichever real fields the
-item actually sets. Avoids baking an ownership prefix into whatever field
-is used as the lookup key, which breaks down when that field is a real,
-semantically constrained value rather than free text with room for a
-prefix. Would let pruning and adoption-avoidance be precise instead of
-relying on the caller's `ignore` list to enumerate every un-owned entry by
-hand. Whatever the identity mechanism ends up being, `find`'s query should
-additionally require the tag to be present wherever possible, so matching
-by value alone never silently "adopts" an entry.
+Have kinds whose paths carry a `comment` write the `routnix:` tag and prune
+only tagged entries, leaving untagged entries alone by default. Removes the
+need for `ignore` to enumerate un-owned entries. Costs: two different prune
+semantics (tagged vs not), a writable `comment` requirement that not every
+path meets, and no help for paths whose identity is a real, semantically
+constrained field rather than free text. `"keyed"` deliberately does not do
+this today.
 
-## Natural, composite-field identity (escape hatch)
-
-For resources without a usable `comment` field, or where a synthetic tag
-isn't wanted: match on a combination of real fields the entry already sets
-(e.g. `address` + `list` together for address-lists, since an address
-alone isn't unique across lists). This is the *only* mechanism implemented
-today — `kind = "effect"`'s required `find`, and `"unordered"`/`"ordered"`'s
-automatically-derived identity, both match on value/composite fields, with
-no synthetic tag involved yet.
-
-Not decided: exact tag format, whether the prefix is globally
-configurable, and whether adoption of pre-existing entries should be a
-deliberate opt-in feature regardless of which identity mechanism wins.
+Not decided: whether ownership-precise pruning is worth the divergence, and
+what to do for paths with no usable `comment` field.

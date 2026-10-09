@@ -16,6 +16,7 @@
         type = types.enum [
           "ordered"
           "unordered"
+          "keyed"
           "settings"
           "effect"
           "inventory"
@@ -36,6 +37,14 @@
             already match an existing entry, by its own declared fields.
             Existing entries that are no longer declared, and not
             covered by `ignore`, are always removed.
+          - `"keyed"` (e.g. `/interface bridge`,
+            `/interface bridge port`): entries have an explicit `key`
+            (a subset of their fields, e.g. `name` or `interface`) that
+            RouterOS won't let two entries share. An item is located by
+            `key`: it is `add`-ed if absent, `set` if present with
+            changed values, and replaced only when its set of fields
+            changed. Existing entries that are no longer declared, and
+            not covered by `ignore`, are always removed.
           - `"settings"` (e.g. `/ip dhcp-server config`): `settings`
             fields are applied as a single `set`.
           - `"effect"` (e.g. `/user ssh-keys`): like `"unordered"`, but
@@ -88,7 +97,9 @@
           kept in declared order relative to each other; also passed to
           `find` to locate each item's existing entry, if any. For
           `"unordered"`/`"effect"`: item data passed to `find` and
-          `create`. For `"inventory"`: item data passed to `find` and
+          `create`. For `"keyed"`: fields to `add`, one item per entry;
+          the item's `key` locates its existing entry, if any. For
+          `"inventory"`: item data passed to `find` and
           `configure`. Ignored for `"settings"` (see `settings`).
         '';
       };
@@ -101,7 +112,21 @@
           item from `items`, returns the fields an existing entry must
           match to be that item. Ignored for
           `"ordered"`/`"unordered"` (identity is derived automatically
-          from each item's own fields instead) and `"settings"`.
+          from each item's own fields instead), `"keyed"` (which uses
+          `key` instead), and `"settings"`.
+        '';
+      };
+
+      key = mkOption {
+        type = types.nullOr (types.functionTo (types.attrsOf itemValueType));
+        default = null;
+        description = ''
+          For `kind = "keyed"`, required: given an item from `items`,
+          returns the fields that identify its entry at this path,
+          e.g. `item: { name = item.name; }` for a bridge or
+          `item: { interface = item.interface; }` for a bridge port.
+          Two items producing the same `key` are an error. Ignored for
+          other kinds.
         '';
       };
 
@@ -147,11 +172,13 @@
         type = types.listOf (types.attrsOf itemValueType);
         default = [];
         description = ''
-          For `kind = "unordered"`, `"ordered"`, or `"effect"` (all
-          three always remove existing entries no longer declared):
-          entries matching any of these field predicates are left alone,
-          even if not declared in `items` -- for entries managed by hand
-          or by another tool. Ignored for `"settings"` and `"inventory"`.
+          For `kind = "unordered"`, `"ordered"`, `"keyed"`, or
+          `"effect"` (all four always remove existing entries no longer
+          declared): entries matching any of these field predicates are
+          left alone, even if not declared in `items` -- for entries
+          managed by hand or by another tool. For `"keyed"`, an ignored
+          entry that occupies a declared `key` is an error. Ignored for
+          `"settings"` and `"inventory"`.
         '';
       };
     };
