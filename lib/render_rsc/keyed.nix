@@ -39,7 +39,7 @@
         :set managed ($managed, [add ${rendered}])
       } else={
         :local item ($match->0)
-        :local cur [:get $item comment]
+        :local cur [get $item comment]
         :if ($cur ~ "^routnix:${shape}:${value}") do={
           :set managed ($managed, $match)
         } else={

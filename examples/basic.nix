@@ -50,4 +50,11 @@
       }
     ];
   };
+
+  # Bridge interfaces (/interface bridge) and their ports
+  # (/interface bridge port), keyed by interface name:
+  #
+  #   bridge.bridges.home-lan.ports.ether2 = { };
+  bridge.enable = true;
+  bridge.bridges.home-lan.mtu = 1500;
 }

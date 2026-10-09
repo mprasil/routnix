@@ -73,7 +73,7 @@ no-op and confines disruption to real edits: a value tweak (a bridge's
 `mtu`, a port's `priority`) is a `set` with no link flap, while a changed
 field set is a remove-and-re-add, the only way to return a dropped field to
 its default. Because sync is decided by comparing the stored tag against a
-Nix-computed hash, no `:get`-versus-declared comparison is needed and
+Nix-computed hash, no read-back-versus-declared comparison is needed and
 RouterOS's value normalization (hex vs decimal, `yes`/`no`, quoting) is
 irrelevant. Since lookup is by `key`, a hash collision between two items is
 unlikely to be a problem, so the hashes stay short.

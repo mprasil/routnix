@@ -25,9 +25,9 @@ as a single RouterOS script (`.rsc`), entirely in Nix:
 
 1. Every module contributes to `routeros.config`, an attrset keyed by
    RouterOS path (e.g. `"/ip firewall filter"`). Each path declares how it is
-   managed: an order-sensitive table, a presence-only table, a singleton
-   settings object, arbitrary commands, or hardware-bound entries that can
-   only be adjusted.
+   managed: an order-sensitive table, a presence-only table, an
+   identity-keyed table, a singleton settings object, arbitrary commands, or
+   hardware-bound entries that can only be adjusted.
 2. Paths that depend on each other are ordered with `before`/`after` and
    topologically sorted, so e.g. an address-list is created before the
    firewall rule that references it.
@@ -42,8 +42,8 @@ exempts entries managed by hand or by another tool from that sweep.
 
 `routeros.config` is the low-level escape hatch and maps closely to
 RouterOS's own paths and fields. On top of it sit higher-level modules
-(`users.*`, `firewall.filter.*`) that compile down to it, the same way NixOS
-service modules compile down to units.
+(`users.*`, `firewall.filter.*`, `bridge.*`) that compile down to it, the
+same way NixOS service modules compile down to units.
 
 ## Usage
 

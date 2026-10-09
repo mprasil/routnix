@@ -141,6 +141,16 @@ def import_config(ros: RouterOsMachine, rsc_dir: Path, config_name: str) -> str:
     return out
 
 
+def entry_id(ros: RouterOsMachine, path: str, where: str) -> str:
+    """The internal id RouterOS `find where <where>` resolves to ("" if none)."""
+    return ros.ssh_cmd(f":put [{path} find where {where}]").strip()
+
+
+def entry_field(ros: RouterOsMachine, path: str, where: str, field: str) -> str:
+    """One property of the entry `find where <where>` resolves to."""
+    return ros.ssh_cmd(f":put [{path} get [find where {where}] {field}]").strip()
+
+
 # ----------------------------------------------------------------------------
 # Subtests
 #
@@ -154,6 +164,11 @@ ADDRESS_LIST = "/ip firewall address-list"
 USER = "/user"
 USER_SSH_KEYS = "/user ssh-keys"
 ETHERNET = "/interface ethernet"
+BRIDGE = "/interface bridge"
+BRIDGE_PORT = "/interface bridge port"
+BRIDGE_NAME = "routnix-test-bridge"
+VLAN_PORT = "routnix-test-vlan"
+VLAN_PORT2 = "routnix-test-vlan2"
 
 # Set from --platform in main(); subtests whose expected router state
 # depends on the RouterOS major version read it.
@@ -524,6 +539,127 @@ def test_inventory_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
     ros.ssh_cmd(f'{ETHERNET} set [find where comment="routnix-test-inventory"] comment=""')
 
 
+# The "bridge_*" group exercises the `bridge` module, which compiles
+# down to kind = "keyed" on /interface bridge and /interface bridge
+# port. ether1 is the interface routeros_test.py itself connects over
+# SSH as, so it is never put into the bridge: VLAN interfaces on it
+# stand in for physical ports instead. Each subtest builds on the state
+# the previous one left behind, and the group cleans up after itself.
+
+
+def test_bridge_apply(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """The `bridge` module adds a declared bridge and its ports."""
+    import_config(ros, rsc_dir, "bridge_basic")
+    assert_eq(
+        entry_field(ros, BRIDGE, f'name="{BRIDGE_NAME}"', "mtu"), "1400",
+        context=f"{BRIDGE} mtu",
+    )
+    assert_eq(
+        count_only(ros, BRIDGE_PORT, f'bridge="{BRIDGE_NAME}"'), 2,
+        context=f"{BRIDGE_PORT} count for the bridge",
+    )
+    assert_eq(
+        entry_field(ros, BRIDGE_PORT, f'interface="{VLAN_PORT}"', "pvid"), "10",
+        context=f"{BRIDGE_PORT} pvid",
+    )
+
+
+def test_bridge_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Reapplying must not duplicate the bridge or its ports."""
+    import_config(ros, rsc_dir, "bridge_basic")
+    assert_eq(
+        count_only(ros, BRIDGE, f'name="{BRIDGE_NAME}"'), 1,
+        context=f"{BRIDGE} count after reapply",
+    )
+    assert_eq(
+        count_only(ros, BRIDGE_PORT, f'bridge="{BRIDGE_NAME}"'), 2,
+        context=f"{BRIDGE_PORT} count after reapply",
+    )
+
+
+def test_bridge_edit_in_place(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """A changed value with an unchanged field set converges with `set`
+    in place: the bridge and port keep the same entries (and ids), so
+    the bridge isn't torn down and re-added."""
+    bridge_before = entry_id(ros, BRIDGE, f'name="{BRIDGE_NAME}"')
+    port_before = entry_id(ros, BRIDGE_PORT, f'interface="{VLAN_PORT}"')
+
+    import_config(ros, rsc_dir, "bridge_edit")
+
+    assert_eq(
+        entry_field(ros, BRIDGE, f'name="{BRIDGE_NAME}"', "mtu"), "1300",
+        context=f"{BRIDGE} mtu after edit",
+    )
+    assert_eq(
+        entry_field(ros, BRIDGE_PORT, f'interface="{VLAN_PORT}"', "pvid"), "20",
+        context=f"{BRIDGE_PORT} pvid after edit",
+    )
+    assert_eq(
+        entry_id(ros, BRIDGE, f'name="{BRIDGE_NAME}"'), bridge_before,
+        context=f"{BRIDGE} entry id (set in place, not re-added)",
+    )
+    assert_eq(
+        entry_id(ros, BRIDGE_PORT, f'interface="{VLAN_PORT}"'), port_before,
+        context=f"{BRIDGE_PORT} entry id (set in place, not re-added)",
+    )
+    assert_eq(
+        count_only(ros, BRIDGE_PORT, f'bridge="{BRIDGE_NAME}"'), 2,
+        context=f"{BRIDGE_PORT} count after edit",
+    )
+
+
+def test_bridge_drop_param(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Dropping a declared field changes the entry's field set, so the
+    entry is replaced (a new id) and the dropped field returns to its
+    default."""
+    bridge_before = entry_id(ros, BRIDGE, f'name="{BRIDGE_NAME}"')
+    port_before = entry_id(ros, BRIDGE_PORT, f'interface="{VLAN_PORT}"')
+
+    import_config(ros, rsc_dir, "bridge_drop_param")
+
+    assert_eq(
+        entry_field(ros, BRIDGE_PORT, f'interface="{VLAN_PORT}"', "pvid"), "1",
+        context=f"{BRIDGE_PORT} pvid reset to default",
+    )
+    mtu = entry_field(ros, BRIDGE, f'name="{BRIDGE_NAME}"', "mtu")
+    assert mtu != "1300", f"{BRIDGE} mtu should have reset from 1300, got {mtu!r}"
+    assert_eq(
+        entry_id(ros, BRIDGE, f'name="{BRIDGE_NAME}"') != bridge_before, True,
+        context=f"{BRIDGE} entry id (replaced, not set)",
+    )
+    assert_eq(
+        entry_id(ros, BRIDGE_PORT, f'interface="{VLAN_PORT}"') != port_before, True,
+        context=f"{BRIDGE_PORT} entry id (replaced, not set)",
+    )
+    assert_eq(
+        count_only(ros, BRIDGE_PORT, f'bridge="{BRIDGE_NAME}"'), 2,
+        context=f"{BRIDGE_PORT} count after dropping a param",
+    )
+
+
+def test_bridge_prune(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """The port path's mandatory prune sweep removes a port no longer
+    declared, while a still-declared port stays."""
+    import_config(ros, rsc_dir, "bridge_prune")
+    assert_eq(
+        count_only(ros, BRIDGE_PORT, f'bridge="{BRIDGE_NAME}"'), 1,
+        context=f"{BRIDGE_PORT} count after prune",
+    )
+    assert_eq(
+        count_only(ros, BRIDGE_PORT, f'interface="{VLAN_PORT2}"'), 0,
+        context=f"{BRIDGE_PORT} undeclared port pruned",
+    )
+    assert_eq(
+        count_only(ros, BRIDGE_PORT, f'interface="{VLAN_PORT}"'), 1,
+        context=f"{BRIDGE_PORT} declared port kept",
+    )
+
+    # Leave nothing behind for other subtests.
+    ros.ssh_cmd(f'{BRIDGE_PORT} remove [find bridge="{BRIDGE_NAME}"]')
+    ros.ssh_cmd(f'{BRIDGE} remove [find name="{BRIDGE_NAME}"]')
+    ros.ssh_cmd('/interface vlan remove [find name~"routnix-test-vlan"]')
+
+
 # The "users_*" group shares state across its subtests the same way the
 # "ordered_*" group does: each relies on the router state the previous
 # one left behind. Every config in this group declares `admin` with
@@ -684,6 +820,11 @@ SUBTESTS: list[tuple[str, Callable[[RouterOsMachine, Path], None]]] = [
     ("unordered_find_fields", test_unordered_find_fields),
     ("unordered_prune", test_unordered_prune),
     ("unordered_prune_empty", test_unordered_prune_empty),
+    ("bridge_apply", test_bridge_apply),
+    ("bridge_idempotent", test_bridge_idempotent),
+    ("bridge_edit_in_place", test_bridge_edit_in_place),
+    ("bridge_drop_param", test_bridge_drop_param),
+    ("bridge_prune", test_bridge_prune),
     ("settings_apply", test_settings_apply),
     ("settings_idempotent", test_settings_idempotent),
     ("precheck_pass", test_precheck_pass),

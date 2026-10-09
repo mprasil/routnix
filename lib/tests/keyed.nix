@@ -72,7 +72,7 @@ in {
           :set managed ($managed, [add ${i.rendered}])
         } else={
           :local item ($match->0)
-          :local cur [:get $item comment]
+          :local cur [get $item comment]
           :if ($cur ~ "^routnix:${i.shape}:${i.value}") do={
             :set managed ($managed, $match)
           } else={
@@ -123,7 +123,7 @@ in {
           :set managed ($managed, [add ${i.rendered}])
         } else={
           :local item ($match->0)
-          :local cur [:get $item comment]
+          :local cur [get $item comment]
           :if ($cur ~ "^routnix:${i.shape}:${i.value}") do={
             :set managed ($managed, $match)
           } else={
