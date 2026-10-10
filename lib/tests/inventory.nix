@@ -21,10 +21,12 @@
       {
         :local item [/interface ethernet find where default-name="ether1"]
         :if ($item = "") do={
-          :error ("routnix: no entry matching find in /interface ethernet")
+          :put "routnix: no entry matching find in /interface ethernet"
+          :error "routnix-no-entry-matching-find"
         }
         :if ([:len $item] > 1) do={
-          :error ("routnix: find matched more than one entry in /interface ethernet")
+          :put "routnix: find matched more than one entry in /interface ethernet"
+          :error "routnix-find-matched-multiple-entries"
         }
         set $item name=lan1
       }
@@ -50,20 +52,24 @@
       {
         :local item [/system package find where name="ipv6"]
         :if ($item = "") do={
-          :error ("routnix: no entry matching find in /system package")
+          :put "routnix: no entry matching find in /system package"
+          :error "routnix-no-entry-matching-find"
         }
         :if ([:len $item] > 1) do={
-          :error ("routnix: find matched more than one entry in /system package")
+          :put "routnix: find matched more than one entry in /system package"
+          :error "routnix-find-matched-multiple-entries"
         }
         enable $item
       }
       {
         :local item [/system package find where name="mpls"]
         :if ($item = "") do={
-          :error ("routnix: no entry matching find in /system package")
+          :put "routnix: no entry matching find in /system package"
+          :error "routnix-no-entry-matching-find"
         }
         :if ([:len $item] > 1) do={
-          :error ("routnix: find matched more than one entry in /system package")
+          :put "routnix: find matched more than one entry in /system package"
+          :error "routnix-find-matched-multiple-entries"
         }
         disable $item
       }

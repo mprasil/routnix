@@ -35,7 +35,8 @@
       {
         :local item [find where ${query}]
         :if ([:len $item] > 1) do={
-          :error ("routnix: find matched more than one entry in ${path}")
+          :put "routnix: find matched more than one entry in ${path}"
+          :error "routnix-find-matched-multiple-entries"
         }
         :if ($item = "" || [:find $ignore $item -1] >= 0) do={
         ${indent (addStatement i item)}

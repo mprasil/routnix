@@ -24,3 +24,9 @@ and ordering within a rendered line vs. within a declared list.
   (alphabetical), since it doesn't matter to RouterOS. Item *list* order is
   always preserved exactly as declared, since that's what matters for
   order-sensitive (`"ordered"`) tables.
+- A failing guard `:put`s its human-readable message, on its own line,
+  before aborting with `:error`, whose argument is a short, code-like
+  marker (e.g. `routnix-find-matched-multiple-entries`), not that message.
+  RouterOS may report `:error`'s own text only in the log rather than the
+  console (notably on v6), so a message passed to `:error` alone wouldn't
+  reliably reach the user.

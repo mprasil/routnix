@@ -30,10 +30,12 @@
     {
       :local match [${path} find where ${query}]
       :if ([:len $match] > 1) do={
-        :error ("routnix: key matched more than one entry in ${path}")
+        :put "routnix: key matched more than one entry in ${path}"
+        :error "routnix-key-matched-multiple-entries"
       }
       :if ([:len $match] = 1 && [:find $ignore ($match->0) -1] >= 0) do={
-        :error ("routnix: ${path}: declared key is occupied by an ignored entry")
+        :put "routnix: ${path}: declared key is occupied by an ignored entry"
+        :error "routnix-key-occupied-by-ignored-entry"
       }
       :if ([:len $match] = 0) do={
         :set managed ($managed, [add ${rendered}])

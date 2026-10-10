@@ -63,10 +63,12 @@ in {
       {
         :local match [/x find where name="home-lan"]
         :if ([:len $match] > 1) do={
-          :error ("routnix: key matched more than one entry in /x")
+          :put "routnix: key matched more than one entry in /x"
+          :error "routnix-key-matched-multiple-entries"
         }
         :if ([:len $match] = 1 && [:find $ignore ($match->0) -1] >= 0) do={
-          :error ("routnix: /x: declared key is occupied by an ignored entry")
+          :put "routnix: /x: declared key is occupied by an ignored entry"
+          :error "routnix-key-occupied-by-ignored-entry"
         }
         :if ([:len $match] = 0) do={
           :set managed ($managed, [add ${i.rendered}])
@@ -114,10 +116,12 @@ in {
       {
         :local match [/x find where interface="ether1"]
         :if ([:len $match] > 1) do={
-          :error ("routnix: key matched more than one entry in /x")
+          :put "routnix: key matched more than one entry in /x"
+          :error "routnix-key-matched-multiple-entries"
         }
         :if ([:len $match] = 1 && [:find $ignore ($match->0) -1] >= 0) do={
-          :error ("routnix: /x: declared key is occupied by an ignored entry")
+          :put "routnix: /x: declared key is occupied by an ignored entry"
+          :error "routnix-key-occupied-by-ignored-entry"
         }
         :if ([:len $match] = 0) do={
           :set managed ($managed, [add ${i.rendered}])

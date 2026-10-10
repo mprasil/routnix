@@ -10,10 +10,12 @@
     {
       :local item [${path} find where ${query}]
       :if ($item = "") do={
-        :error ("routnix: no entry matching find in ${path}")
+        :put "routnix: no entry matching find in ${path}"
+        :error "routnix-no-entry-matching-find"
       }
       :if ([:len $item] > 1) do={
-        :error ("routnix: find matched more than one entry in ${path}")
+        :put "routnix: find matched more than one entry in ${path}"
+        :error "routnix-find-matched-multiple-entries"
       }
     ${indent (configure item)}
     }'';

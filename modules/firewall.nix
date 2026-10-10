@@ -171,7 +171,8 @@ in {
         routeros_v7 = false;
       })) ''
       :if ([:len [/system package find where name="ipv6" disabled=no]] = 0) do={
-        :error "routnix: ipv6 firewall is managed, but ipv6 is not enabled on this router (set firewall.filter.family to ipv4only for an ipv4-only device)"
+        :put "routnix: ipv6 firewall is managed, but ipv6 is not enabled on this router (set firewall.filter.family to ipv4only for an ipv4-only device)"
+        :error "routnix-ipv6-firewall-not-enabled"
       }
     '';
   };

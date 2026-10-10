@@ -27,16 +27,19 @@
       {
         :local item [/x find where a="1"]
         :if ([:len $item] > 1) do={
-          :error ("routnix: find matched more than one entry in /x")
+          :put "routnix: find matched more than one entry in /x"
+          :error "routnix-find-matched-multiple-entries"
         }
         :if ($item = "" || [:find $ignore $item -1] >= 0) do={
           custom 1
           :set item [/x find where a="1"]
           :if ($item = "") do={
-            :error ("routnix: create for /x didn't produce an entry matching find")
+            :put "routnix: create for /x didn't produce an entry matching find"
+            :error "routnix-create-no-matching-entry"
           }
           :if ([:len $item] > 1) do={
-            :error ("routnix: find matched more than one entry in /x")
+            :put "routnix: find matched more than one entry in /x"
+            :error "routnix-find-matched-multiple-entries"
           }
         }
         :set managed ($managed, $item)
@@ -65,16 +68,19 @@
       {
         :local item [/x find where a="1"]
         :if ([:len $item] > 1) do={
-          :error ("routnix: find matched more than one entry in /x")
+          :put "routnix: find matched more than one entry in /x"
+          :error "routnix-find-matched-multiple-entries"
         }
         :if ($item = "" || [:find $ignore $item -1] >= 0) do={
           custom 1
           :set item [/x find where a="1"]
           :if ($item = "") do={
-            :error ("routnix: create for /x didn't produce an entry matching find")
+            :put "routnix: create for /x didn't produce an entry matching find"
+            :error "routnix-create-no-matching-entry"
           }
           :if ([:len $item] > 1) do={
-            :error ("routnix: find matched more than one entry in /x")
+            :put "routnix: find matched more than one entry in /x"
+            :error "routnix-find-matched-multiple-entries"
           }
         }
         :set managed ($managed, $item)

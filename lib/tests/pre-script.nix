@@ -48,7 +48,8 @@
       {
         :local item [/x find where a="1"]
         :if ([:len $item] > 1) do={
-            :error ("routnix: find matched more than one entry in /x")
+            :put "routnix: find matched more than one entry in /x"
+            :error "routnix-find-matched-multiple-entries"
         }
         :if ($item = "" || [:find $ignore $item -1] >= 0) do={
             :set item [add a="1"]

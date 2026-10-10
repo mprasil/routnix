@@ -13,16 +13,19 @@
     {
       :local item [${path} find where ${query}]
       :if ([:len $item] > 1) do={
-        :error ("routnix: find matched more than one entry in ${path}")
+        :put "routnix: find matched more than one entry in ${path}"
+        :error "routnix-find-matched-multiple-entries"
       }
       :if ($item = "" || [:find $ignore $item -1] >= 0) do={
       ${indent (create item)}
         :set item [${path} find where ${query}]
         :if ($item = "") do={
-          :error ("routnix: create for ${path} didn't produce an entry matching find")
+          :put "routnix: create for ${path} didn't produce an entry matching find"
+          :error "routnix-create-no-matching-entry"
         }
         :if ([:len $item] > 1) do={
-          :error ("routnix: find matched more than one entry in ${path}")
+          :put "routnix: find matched more than one entry in ${path}"
+          :error "routnix-find-matched-multiple-entries"
         }
       }
       :set managed ($managed, $item)
