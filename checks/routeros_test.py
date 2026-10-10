@@ -427,7 +427,7 @@ def test_precheck_fail_aborts(ros: RouterOsMachine, rsc_dir: Path) -> None:
         # point; only the tail is used, to avoid matching messages
         # from earlier subtests.
         log = ros.ssh_cmd("/log print without-paging")
-        output += "\n" + "\n".join(log.splitlines()[-2:])
+        output += "\n" + "\n".join(log.splitlines()[-5:])
 
     assert_contains(
         output,
