@@ -4,7 +4,7 @@ jobs:
   # Pure-Nix unit tests, no VM involved.
   non-vm-checks:
     docker:
-      - image: nixos/nix:2.35.2
+      - image: nixos/nix:2.35.3
     environment:
       # The image ships Nix without flakes enabled.
       NIX_CONFIG: "experimental-features = nix-command flakes"
@@ -26,7 +26,7 @@ jobs:
         type: string
         default: "/tmp/ros-image-cache"
     docker:
-      - image: nixos/nix:2.35.2
+      - image: nixos/nix:2.35.3
     environment:
       NIX_CONFIG: "experimental-features = nix-command flakes"
     steps:
