@@ -1,6 +1,7 @@
 {lib}: let
-  inherit (lib) concatStringsSep substring;
+  inherit (lib) concatStringsSep substring any;
   inherit (import ./common.nix {inherit lib;}) renderArgs renderQuery;
+  inherit (import ../secret.nix {inherit lib;}) isSecret;
 
   # The `comment` tag written into every entry routnix creates here:
   # `shape` hashes the item's sorted field names, `value` hashes its
@@ -75,12 +76,19 @@
         fields: ":set ignore ($ignore, [${path} find where ${renderQuery fields}])"
       ) entry.ignore
     );
+    rendered =
+      concatStringsSep "\n" (
+        [path ignoreSetup ":local managed ({})"]
+        ++ map (renderItem path key) entry.items
+        ++ [(renderPrune path)]
+      );
+    hasSecret = any (item:
+      (item.comment or "") == "" && any isSecret (builtins.attrValues item))
+    entry.items;
   in
-    concatStringsSep "\n" (
-      [path ignoreSetup ":local managed ({})"]
-      ++ map (renderItem path key) entry.items
-      ++ [(renderPrune path)]
-    );
+    if hasSecret
+    then builtins.trace "routnix: ${path}: a keyed item contains a secret, but its tag only changes when its comment includes routeros.secrets.hash" rendered
+    else rendered;
 in {
   inherit renderKeyed;
 }

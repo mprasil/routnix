@@ -16,6 +16,9 @@
   # options down to, *before* rendering.
   evalConfig = module: (evalConfigFull module).routeros.config;
 
+  # The evaluated `routeros.secrets`; forcing it also runs assertions.
+  evalSecrets = module: (routnix.evalConfig {modules = [module];}).secrets;
+
   # Strips a `routeros.config.<path>` entry down to its plain-data
   # fields for comparison -- `find`/`create` are functions and can't go
   # through `lib.runTests`'s `==`.
@@ -52,7 +55,7 @@
 
   # Arguments handed to every sibling test file in this directory.
   testFileArgs = {
-    inherit lib evalConfig evalConfigFull dataFields throws;
+    inherit lib evalConfig evalConfigFull evalSecrets dataFields throws;
   };
 
   # Every `*.nix` file in this directory other than this one is a

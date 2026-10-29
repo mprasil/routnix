@@ -55,6 +55,19 @@
     configNames
   );
 
+  # The "secrets_*" subtests upload the payload with the real
+  # sops/curl uploader built from this config, then apply its .rsc.
+  secretsEvaluated = routnixLib.evalConfig {
+    modules = [
+      (configsDir + "/secrets_basic.nix")
+      {device.platform = platform;}
+    ];
+  };
+  secretUploader = (import ../lib/secret_upload.nix {inherit pkgs;}) {
+    inherit (secretsEvaluated) secrets;
+    curlOptions = ["-k" "-u" "admin:"];
+  };
+
   testPython = pkgs.python3.withPackages (
     ps: [
       ((ps.toPythonModule pkgs.nixos-test-driver).overrideAttrs {
@@ -83,6 +96,9 @@ in
         --ssh     "${pkgs.openssh}/bin/ssh" \
         --scp     "${pkgs.openssh}/bin/scp" \
         --platform "${platform}" \
+        --secret-upload "${secretUploader}/bin/routnix-upload-secrets" \
+        --secret-key "${./secrets/age.key}" \
+        --secret-hash "${secretsEvaluated.secrets.hash}" \
         --out-dir "$out"
 
       touch "$out/success"

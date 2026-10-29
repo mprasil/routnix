@@ -4,11 +4,16 @@
   image,
   sshPort ? 2222,
   console ? false,
+  secretUpload ? null,
 }: let
   inherit (pkgs) lib;
 
   qemu = "${pkgs.qemu}/bin/qemu-system-x86_64";
   remoteName = builtins.baseNameOf rscFile;
+  secretUploader =
+    if secretUpload == null
+    then ""
+    else "${secretUpload}/bin/routnix-upload-secrets";
 in
   pkgs.writeShellApplication {
     name = "vm-${name}";
@@ -17,6 +22,7 @@ in
       qemu=${lib.escapeShellArg qemu}
       rsc_file=${lib.escapeShellArg (toString rscFile)}
       remote_name=${lib.escapeShellArg remoteName}
+      secret_upload=${lib.escapeShellArg secretUploader}
       default_port=${toString sshPort}
 
       msg() { printf '%s\r\n' "$*" >&2; }
@@ -98,6 +104,11 @@ in
 
         msg "vm-${name}: copying $remote_name to the VM"
         scp "''${scp_opts[@]}" "$rsc_file" "admin@127.0.0.1:$remote_name"
+
+        if [ -n "$secret_upload" ]; then
+          msg "vm-${name}: uploading secrets"
+          "$secret_upload" "admin@127.0.0.1:$port"
+        fi
 
         msg "vm-${name}: importing $remote_name"
         ros_ssh "/import $remote_name; /file remove $remote_name" || true

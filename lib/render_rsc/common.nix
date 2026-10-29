@@ -7,9 +7,14 @@
     removeSuffix
     ;
 
+  inherit (import ../secret.nix {inherit lib;}) isSecret secretName readExpression;
+
   # Renders a single RouterOS scalar value into its `.rsc` textual form.
+  # A secret reference renders as the payload lookup, never as a literal.
   renderValue = v:
-    if builtins.isBool v
+    if isSecret v
+    then readExpression (secretName v)
+    else if builtins.isBool v
     then
       (
         if v

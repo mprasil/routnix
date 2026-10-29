@@ -16,7 +16,9 @@ Exit codes: 0 = pass, non-zero = at least one subtest failed.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import traceback
@@ -39,6 +41,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--platform", required=True,
                    choices=["routeros_v6", "routeros_v7"],
                    help="device.platform the .rsc files were rendered for")
+    p.add_argument("--secret-upload", required=True,
+                   help="Path to the routnix secret uploader executable")
+    p.add_argument("--secret-key", required=True,
+                   help="Path to the fake age key decrypting the test fixture")
+    p.add_argument("--secret-hash", required=True,
+                   help="routeros.secrets.hash of the test fixture")
     p.add_argument("--ssh-port", type=int, default=2222,
                    help="Host TCP port forwarded to RouterOS SSH")
     p.add_argument("--out-dir",  required=True,
@@ -173,6 +181,35 @@ VLAN_PORT2 = "routnix-test-vlan2"
 # Set from --platform in main(); subtests whose expected router state
 # depends on the RouterOS major version read it.
 PLATFORM = "routeros_v7"
+
+# Set from --secret-* in main(). The secrets config's payload is uploaded
+# with the real routnix uploader, using the committed fake age key.
+SECRET_UPLOAD = ""
+SECRET_KEY = ""
+SECRET_HASH = ""
+
+PPP_SECRET = "/ppp secret"
+SECRET_MAIL = "routnix-test-mail-secret"
+SECRET_WIFI = "routnix-test-wifi-secret"
+
+
+def upload_secrets(ros: RouterOsMachine) -> None:
+    """Upload the secrets_basic payload with routnix's real uploader."""
+    env = dict(os.environ)
+    env["SOPS_AGE_KEY_FILE"] = SECRET_KEY
+    target = f"admin@127.0.0.1:{ros.ssh_port}"
+    proc = subprocess.run(
+        [SECRET_UPLOAD, target],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            f"secret upload failed (exit {proc.returncode})"
+            f"\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        )
 
 
 def test_ordered_add(ros: RouterOsMachine, rsc_dir: Path) -> None:
@@ -530,6 +567,53 @@ def test_inventory_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
     ros.ssh_cmd(f'{ETHERNET} set [find where comment="routnix-test-inventory"] comment=""')
 
 
+# The "secrets_*" group uploads checks/secrets/secrets.enc.yaml with the
+# real routnix uploader (a committed fake age key decrypts it), then
+# applies a config whose settings, `find where`, and keyed comment all use
+# the payload. A second apply checks the payload file survives `/import`
+# and that nothing is duplicated.
+
+
+def test_secrets_apply(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """A secret is read verbatim through the full decrypt-render-upload-
+    parse round trip: a `settings` field, an `unordered` item's derived
+    `find where`, and a `keyed` path whose comments carry the payload
+    hash."""
+    upload_secrets(ros)
+    import_config(ros, rsc_dir, "secrets_basic")
+
+    note = ros.ssh_cmd(":put [/system note get note]").strip()
+    assert_eq(note, SECRET_MAIL, context="/system note get note")
+
+    assert_eq(
+        entry_field(ros, ADDRESS_LIST, 'address="10.99.99.99"', "comment"),
+        SECRET_WIFI,
+        context=f"{ADDRESS_LIST} secret comment",
+    )
+
+    for name in ("routnix-test-secret-user", "routnix-test-secret-user2"):
+        comment = entry_field(ros, PPP_SECRET, f'name="{name}"', "comment")
+        assert_contains(comment, SECRET_HASH, context=f"{PPP_SECRET} comment for {name}")
+
+
+def test_secrets_idempotent(ros: RouterOsMachine, rsc_dir: Path) -> None:
+    """Reapplying with the payload already on the router is a no-op: the
+    keyed entries and the address-list item aren't duplicated."""
+    import_config(ros, rsc_dir, "secrets_basic")
+    assert_eq(
+        count_only(ros, PPP_SECRET, 'name~"routnix-test-secret-user"'), 2,
+        context=f"{PPP_SECRET} count after reapply",
+    )
+    assert_eq(
+        count_only(ros, ADDRESS_LIST, 'list="routnix-test-secret"'), 1,
+        context=f"{ADDRESS_LIST} count after reapply",
+    )
+
+    ros.ssh_cmd(f'{PPP_SECRET} remove [find where name~"routnix-test-secret-user"]')
+    ros.ssh_cmd(f'{ADDRESS_LIST} remove [find where list="routnix-test-secret"]')
+    ros.ssh_cmd('/system note set note=""')
+
+
 # The "bridge_*" group exercises the `bridge` module, which compiles
 # down to kind = "keyed" on /interface bridge and /interface bridge
 # port. ether1 is the interface routeros_test.py itself connects over
@@ -826,6 +910,8 @@ SUBTESTS: list[tuple[str, Callable[[RouterOsMachine, Path], None]]] = [
     ("effect_prune_empty", test_effect_prune_empty),
     ("inventory_configure", test_inventory_configure),
     ("inventory_idempotent", test_inventory_idempotent),
+    ("secrets_apply", test_secrets_apply),
+    ("secrets_idempotent", test_secrets_idempotent),
     ("users_add", test_users_add),
     ("users_idempotent", test_users_idempotent),
     ("users_prune", test_users_prune),
@@ -839,10 +925,13 @@ SUBTESTS: list[tuple[str, Callable[[RouterOsMachine, Path], None]]] = [
 
 
 def main() -> None:
-    global PLATFORM
+    global PLATFORM, SECRET_UPLOAD, SECRET_KEY, SECRET_HASH
 
     args = parse_args()
     PLATFORM = args.platform
+    SECRET_UPLOAD = args.secret_upload
+    SECRET_KEY = args.secret_key
+    SECRET_HASH = args.secret_hash
 
     with tempfile.TemporaryDirectory() as _tmp:
         tmp_dir = Path(_tmp)
