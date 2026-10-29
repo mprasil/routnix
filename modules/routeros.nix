@@ -1,13 +1,14 @@
 {lib, ...}: let
   inherit (lib) mkOption types;
 
-  inherit (lib.routnix) renderArgs;
+  inherit (lib.routnix) renderArgs secretReferenceType;
 
-  # RouterOS field value: bool, int, or string.
+  # RouterOS field value: bool, int, string, or a secret reference.
   itemValueType = types.oneOf [
     types.bool
     types.int
     types.str
+    secretReferenceType
   ];
 
   entryModule = {

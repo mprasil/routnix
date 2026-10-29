@@ -4,7 +4,7 @@
   ...
 }: let
   inherit (lib) mkOption mkIf types filterAttrs mapAttrsToList optionalAttrs concatStringsSep attrValues concatMap splitString;
-  inherit (lib.routnix) perPlatform;
+  inherit (lib.routnix) perPlatform renderValue secretReferenceType;
 
   cfg = config.users.users;
 
@@ -57,15 +57,14 @@
         '';
       };
       initialPassword = mkOption {
-        type = types.nullOr types.str;
+        type = types.nullOr (types.oneOf [types.str secretReferenceType]);
         default = null;
         description = ''
           The password to set on a newly created user. It is only used when
           the account is first created; an existing account's password is
-          left untouched.
-
-          The string is stored in the nix store, so it's recommended to leave
-          it undefined.
+          left untouched. A plain string is stored in the nix store; a
+          secret reference from `routeros.secrets.entries` is read from the
+          secret payload instead.
 
           If `null` (default) a random string is generated on-device.
         '';
@@ -135,7 +134,7 @@ in {
       create = item: let
         passwordArg =
           if item ? initialPassword
-          then "\"${item.initialPassword}\""
+          then renderValue item.initialPassword
           else
             perPlatform config {
               routeros_v6 = v6_password_generator;

@@ -164,13 +164,46 @@ nix run .#home-router.apply -- admin@192.168.88.1
 ```
 
 `apply` copies the rendered `.rsc` to the router over `scp` and runs
-`/import` over `ssh`, then removes the file again. Pass `--copy-only` to stop
-after the copy. Auth, host keys, and identity are left to your own
-`ssh`/`scp` config and agent. Passing `host` to `mkDeviceConfig` bakes in a
-default so a bare `nix run .#home-router.apply` works; extra options (e.g. a
-non-default port) go in the `sshOptions`/`scpOptions` lists or the
+`/import` over `ssh`, then removes the file again. When the config declares
+secrets, it also uploads the secret payload before importing. Pass
+`--copy-only` to copy the `.rsc` only, or `--copy-with-secrets` to copy the
+`.rsc` and the payload without importing. Auth, host keys, and identity are
+left to your own `ssh`/`scp` config and agent. Passing `host` to
+`mkDeviceConfig` bakes in a default so a bare `nix run .#home-router.apply`
+works; extra options (e.g. a non-default port) go in the
+`sshOptions`/`scpOptions`/`curlOptions` lists or the
 `ROUTNIX_SSH_OPTS`/`ROUTNIX_SCP_OPTS` environment variables. There is no
 rollback yet if `/import` fails partway through.
+
+#### Secrets
+
+Values that must not be stored in the Nix store go in a sops file committed
+alongside the config:
+
+```nix
+{
+  routeros.secrets.file = ./secrets.yaml;
+  routeros.secrets.entries.mailPassword.key = "mail/password";
+
+  users.enable = true;
+  users.users.admin.initialPassword =
+    config.routeros.secrets.entries.mailPassword.reference;
+}
+```
+
+`apply` decrypts the file on the machine running it (the key comes from
+`SOPS_AGE_KEY`/`SOPS_AGE_KEY_FILE`), renders the declared secrets into one
+payload, and uploads that to the router before importing. A config that declares
+no secrets uploads nothing.
+
+Caveats:
+
+- A rendered `.rsc` is not standalone-applicable: importing it on a router
+  that never received the payload fails initial checks.
+- Router backups, `/export` output, and the payload file are as sensitive as
+  the secrets themselves. Anything that can read files on the router can read
+  the payload.
+- Secret values are text: NUL bytes and non-UTF8 do not survive.
 
 #### Run a test VM with your configuration
 

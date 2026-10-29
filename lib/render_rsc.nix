@@ -78,12 +78,18 @@ in {
   inherit renderValue renderArgs;
 
   # Renders `rosConfig` (as produced by `modules/routeros.nix`) into a
-  # single `.rsc` script: `preCheck` (freehand `.rsc`, possibly empty)
-  # ahead of the entries emitted in `order`.
-  renderConfig = rosConfig: order: preCheck: let
+  # single `.rsc` script: the secrets prologue (when `secretPayload` is
+  # set), then `preCheck` (freehand `.rsc`, possibly empty), then the
+  # entries emitted in `order`.
+  renderConfig = rosConfig: order: preCheck: secretPayload: let
+    prologue =
+      if secretPayload == null
+      then []
+      else [":local secrets [[:parse value=[/file get \"${secretPayload}\" value-name=\"contents\"]]];"];
     chunks =
       filter (c: c != null && c != "")
-      ([ (trim preCheck) ]
+      (prologue
+        ++ [ (trim preCheck) ]
         ++ map (path: renderEntry path rosConfig.${path}) order);
   in
     concatStringsSep "\n\n" chunks + "\n";
