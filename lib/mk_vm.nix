@@ -111,7 +111,7 @@ in
         fi
 
         msg "vm-${name}: importing $remote_name"
-        ros_ssh "/import $remote_name; /file remove $remote_name" || true
+        ros_ssh "/import \"$remote_name\"; /file remove \"$remote_name\"" || true
 
         if ros_ssh "/system identity print" >/dev/null 2>&1; then
           msg "vm-${name}: configuration applied"
