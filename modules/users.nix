@@ -164,7 +164,13 @@ in {
       create = item: let
         fileName = "routnix-${item.user}-${item.hash}.pub";
         fileCreationCommand = perPlatform config {
-          routeros_v6 = '':execute ":put \"${sshPubKeyFileContents item.key}\"" file="${fileName}\00"'';
+          # Nothing is ever easy on v6, here we:
+          # - store output of a "script" (echoed key) to a file
+          # - wait a little bit for it to be written, otherwise using it might fail
+          routeros_v6 = ''
+            :execute ":put \"${sshPubKeyFileContents item.key}\"" file="${fileName}\00"
+            :delay 2
+          '';
           routeros_v7 = ''/file add name="${fileName}" contents="${sshPubKeyFileContents item.key}"'';
         };
       in ''
