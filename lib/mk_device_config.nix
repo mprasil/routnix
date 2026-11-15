@@ -191,7 +191,7 @@
       fi
 
       echo "Importing ${remoteName} on $host" >&2
-      ssh "''${ssh_opts[@]}" "$host" "/import ${remoteName}; /file remove ${remoteName}"
+      ssh "''${ssh_opts[@]}" "$host" "/import \"${remoteName}\"; /file remove \"${remoteName}\""
     '';
   };
 in
