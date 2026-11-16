@@ -8,7 +8,9 @@
 # `apply` scps the `.rsc` to `<user@host>` (a runtime argument, defaulting
 # to `host` when one is set), uploads the secret payload when the config
 # declares one, and runs `/import` over ssh, removing the file from the
-# router afterwards. `--copy-only` copies only the `.rsc`;
+# router afterwards. The import only counts as applied when the router
+# confirms it with a marker `:put`, since RouterOS ssh does not propagate
+# import errors. `--copy-only` copies only the `.rsc`;
 # `--copy-with-secrets` copies the `.rsc` and the payload without
 # importing. Auth, host keys, and identity are left entirely to the
 # caller's own ssh/scp config and agent; `sshOptions`/`scpOptions`/
@@ -40,6 +42,7 @@
   evaluated = evalConfig {inherit modules;};
   rscFile = pkgs.writeText "${name}.rsc" evaluated.rsc;
   remoteName = builtins.baseNameOf rscFile;
+  importMarker = "routnix: ${remoteName} imported";
   defaultHost = if host == null then "" else host;
   hostArg = if host == null then "<user@host>" else "[<user@host>]";
 
@@ -190,8 +193,24 @@
         exit 0
       fi
 
+      # RouterOS doesn't report import errors over ssh, so the trailing :put is
+      # what confirms the import ran to completion.
       echo "Importing ${remoteName} on $host" >&2
-      ssh "''${ssh_opts[@]}" "$host" "/import \"${remoteName}\"; /file remove \"${remoteName}\""
+      import_status=0
+      import_output=$(ssh "''${ssh_opts[@]}" "$host" "/import \"${remoteName}\"; /file remove \"${remoteName}\"; :put \"${importMarker}\"") || import_status=$?
+      if [ -n "$import_output" ]; then
+        printf '%s\n' "$import_output"
+      fi
+      if [ "$import_status" -ne 0 ]; then
+        exit "$import_status"
+      fi
+      case "$import_output" in
+        *"${importMarker}"*) ;;
+        *)
+          echo "apply: import of ${remoteName} on $host did not complete" >&2
+          exit 1
+          ;;
+      esac
     '';
   };
 in
