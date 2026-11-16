@@ -164,8 +164,10 @@ nix run .#home-router.apply -- admin@192.168.88.1
 ```
 
 `apply` copies the rendered `.rsc` to the router over `scp` and runs
-`/import` over `ssh`, then removes the file again. When the config declares
-secrets, it also uploads the secret payload before importing. Pass
+`/import` over `ssh`, then removes the file again. RouterOS does not
+report import errors over `ssh`, so `apply` fails unless the router
+confirms the import with a marker printed at the end. When the config
+declares secrets, it also uploads the secret payload before importing. Pass
 `--copy-only` to copy the `.rsc` only, or `--copy-with-secrets` to copy the
 `.rsc` and the payload without importing. Auth, host keys, and identity are
 left to your own `ssh`/`scp` config and agent. Passing `host` to
